@@ -1,0 +1,183 @@
+name: Paseo compatibility
+
+# Tests every new Paseo release, beta and stable, against the plugin as it is on this commit, with
+# scripts/paseo-compat.mjs: the SDK of the release (typecheck and tests), then an isolated daemon of it with the plugin
+# installed, its RPCs, and its hooks through an agent of the built-in mock provider. No provider key and no secret is
+# used. A version that fails gets one issue, labelled paseo-compat, which the first run that passes closes. The plugin
+# claims an open range of Paseo releases, so a release needs no change of it; see CONTRIBUTING.md, "Paseo compatibility".
+
+on:
+  schedule:
+    # Daily: a release is tested within a day of reaching npm.
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Paseo versions to test, separated by spaces or commas. Empty tests npm's latest and beta of @getpaseo/cli, leaving out those that passed for this commit.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+# Two runs at once could open the same issue twice, so they queue. A run that waits is replaced by a newer one, which
+# tests what npm has by then.
+concurrency:
+  group: paseo-compat
+  cancel-in-progress: false
+
+env:
+  # The runners every version is tested on, one result each. The matrix reads them through the resolve job.
+  RUNNERS: '["macos-15", "ubuntu-24.04"]'
+
+jobs:
+  resolve:
+    name: Versions to test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      versions: ${{ steps.select.outputs.versions }}
+      runners: ${{ steps.resolve.outputs.runners }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      # A version the manifest's range does not admit, by that release's own rule, is skipped and not tested.
+      - name: Resolve the versions and the plugin's claim on them
+        id: resolve
+        env:
+          VERSIONS: ${{ inputs.versions }}
+        run: node scripts/paseo-compat.mjs resolve
+      # Only versions taken from the dist-tags are looked up: one asked for by name is tested anyway. Two lookups, one
+      # for each of latest and beta; the script refuses to make more keys than that.
+      - name: Look up a pass of the first version for this commit
+        id: cache0
+        if: steps.resolve.outputs.key0 != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .paseo-compat-pass
+          key: ${{ steps.resolve.outputs.key0 }}
+          lookup-only: true
+      - name: Look up a pass of the second version for this commit
+        id: cache1
+        if: steps.resolve.outputs.key1 != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .paseo-compat-pass
+          key: ${{ steps.resolve.outputs.key1 }}
+          lookup-only: true
+      - name: Leave out the versions that passed for this commit
+        id: select
+        env:
+          VERSIONS: ${{ steps.resolve.outputs.versions }}
+          HIT0: ${{ steps.cache0.outputs.cache-hit }}
+          HIT1: ${{ steps.cache1.outputs.cache-hit }}
+        run: node scripts/paseo-compat.mjs select
+
+  test:
+    name: Paseo ${{ matrix.version }} / ${{ matrix.os }}
+    needs: resolve
+    if: needs.resolve.outputs.versions != '[]'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.resolve.outputs.versions) }}
+        os: ${{ fromJSON(needs.resolve.outputs.runners) }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      # Steps 1 to 6: the claim, the SDK of the release, the daemon, the RPCs, the hooks, and the cleanup. The job
+      # fails with the run, and the result goes to the report either way.
+      - name: Test the plugin against Paseo ${{ matrix.version }}
+        env:
+          VERSION: ${{ matrix.version }}
+          PASEO_COMPAT_RUNNER: ${{ matrix.os }}
+        run: node scripts/paseo-compat.mjs "$VERSION" --with-sdk --verbose --result "$RUNNER_TEMP/paseo-compat/result.json"
+      - name: Keep the result for the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: paseo-compat-${{ matrix.version }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/paseo-compat/result.json
+          # A runner without a result is reported as failing.
+          if-no-files-found: warn
+          retention-days: 7
+
+  report:
+    name: Report
+    needs: [resolve, test]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.versions != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      record: ${{ steps.report.outputs.record }}
+      passed: ${{ steps.report.outputs.passed }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Download the results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: paseo-compat-*
+          path: ${{ runner.temp }}/results
+      - name: Open, update or close the issues
+        id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSIONS: ${{ needs.resolve.outputs.versions }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The issues follow the default branch, where every scheduled run starts. A run started by hand from another
+          # branch prints what it would do and changes no issue.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != github.event.repository.default_branch }}
+        run: node scripts/paseo-compat.mjs report "$RUNNER_TEMP/results"
+
+  record:
+    name: Record Paseo ${{ matrix.version }} as passed
+    needs: report
+    if: needs.report.outputs.passed != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The cache takes the runner's own token; this job needs no permission of the repository.
+    permissions: {}
+    strategy:
+      matrix: ${{ fromJSON(needs.report.outputs.record) }}
+    steps:
+      # The key is the record: a version that passed on every runner for this commit is not tested again for it.
+      - name: Write the record
+        env:
+          KEY: ${{ matrix.key }}
+        run: |
+          mkdir -p .paseo-compat-pass
+          echo "$KEY" > .paseo-compat-pass/key
+      - name: Save the record
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .paseo-compat-pass
+          key: ${{ matrix.key }}

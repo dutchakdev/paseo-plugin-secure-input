@@ -108,13 +108,16 @@ describe("the other values both halves hold", () => {
 describe("the most one Paseo RPC may carry", () => {
   const ROOT = join(import.meta.dirname, "..");
   const installed = (name: string) => join(ROOT, "node_modules", "@getpaseo", name);
+  // A compatibility run (`scripts/paseo-compat.mjs --with-sdk`) installs the SDK of a later Paseo over the pinned one
+  // and names that release here: the limits are then held to it, and a release that moves one fails its run.
+  const release = process.env.PASEO_COMPAT_SDK ?? "0.14.0-beta.1";
 
   it("is what the installed protocol says of the daemon's WebSocket and of the relay's frame", () => {
     const protocol = readFileSync(join(installed("protocol"), "dist", "websocket-message-limit.js"), "utf8");
     expect(protocol).toContain("export const MAX_WEBSOCKET_MESSAGE_BYTES = 100 * 1024 * 1024;");
     expect(protocol).toContain("export const MAX_RELAY_WEBSOCKET_MESSAGE_BYTES = 32 * 1024 * 1024;");
     const version = (name: string) => (JSON.parse(readFileSync(join(installed(name), "package.json"), "utf8")) as { version: string }).version;
-    expect([version("protocol"), version("relay")]).toEqual(["0.14.0-beta.1", "0.14.0-beta.1"]);
+    expect([version("protocol"), version("relay")]).toEqual([release, release]);
   });
 
   it("reads only packages the plugin declares, at the exact version it holds the number to", () => {

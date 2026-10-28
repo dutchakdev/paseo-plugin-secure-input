@@ -59,6 +59,41 @@ paseo plugin logs secure-input
 
 Observed on Paseo 0.14.0-beta.1 with Claude Code 2.1.311 and Codex 0.164.0: Claude Code lists the tools as `mcp__paseo__request_secret` and the other three alike, deferred until loaded with `ToolSearch`; Codex has them as nested tools of `exec`, listed in `ALL_TOOLS`, and one Codex model did not find them until told to look there. In Claude Code's `default` mode and Codex's `auto` mode every call asked for permission, and Claude Code also before each `cp` of a delivered file. Kimi and other modes were not tried.
 
+## Paseo compatibility
+
+`paseo-plugin.json` claims Paseo `>=0.14.0-beta.1`, an open range: a new Paseo release needs no change to the plugin, and no document names a newest supported release. The SDK stays pinned at the oldest release the range admits (see [Setup](#setup)). The [Paseo compatibility workflow](.github/workflows/paseo-compat.yml) finds out when a release breaks the plugin: every day, or by hand for the versions you give it, it tests npm's `latest` and `beta` of `@getpaseo/cli` on macOS and Ubuntu, with no provider key and no secret.
+
+```mermaid
+flowchart LR
+  T["npm: latest, beta"] --> C{"claimed by<br/>paseo-plugin.json?"}
+  C -- no --> S["skipped"]
+  C -- yes --> K{"passed for<br/>this commit?"}
+  K -- yes --> N["not tested again"]
+  K -- no --> R["scripts/paseo-compat.mjs<br/>on macos-15 and ubuntu-24.04"]
+  R -- fails --> I["issue opened or updated"]
+  R -- passes on both --> P["issue closed,<br/>pass recorded"]
+```
+
+One run of `scripts/paseo-compat.mjs <version>` prints a line per step:
+
+| Step | What it checks |
+| --- | --- |
+| 1 range | The release's own `assertPluginCompatibility` (`@getpaseo/protocol`) admits it for the daemon and the app. A release outside the range is skipped, not failed. |
+| 2 sdk | With `--with-sdk`, as the workflow runs it: `npm run typecheck` and `npm test` against the release's `@getpaseo/*`, installed over the pinned ones and put back afterwards. |
+| 3 daemon | The release's CLI, in a temporary prefix, starts a daemon in a temporary home on a free port, never 6767. The plugin, installed from the checkout, is `running` and logs "Plugin ready". |
+| 4 rpc | Through that daemon, with the release's client: the diagnostics answer parses with the plugin's own schema, and reading an unknown request gets the plugin's refusal. |
+| 5 hooks | An agent of the built-in `mock` provider opens its session through the plugin's `agent.session_open` hook and runs one turn; the diagnostics then show no hook failure. |
+| 6 cleanup | The daemon stops and the temporary directory goes, whatever happened before, Ctrl-C included. |
+
+```sh
+npm run test:paseo -- 0.14.0-beta.1              # steps 1 and 3 to 6, against that release
+npm run test:paseo -- 0.14.0-beta.1 --with-sdk   # with step 2
+```
+
+It is safe to run inside a Paseo agent: what it starts loses the session's variables (`PASEO_*`, `SECURE_INPUT_*`) and talks only to the daemon it started. The mock provider needs no key, but it calls no tools, so the four tools stay unexercised; for a beta, add a round of [live validation](#live-validation) with a real agent. `mock` exists only in a development daemon (`PASEO_NODE_ENV=development`, which the script sets) and can change in any release: a step 5 that fails on the mock provider itself is the script's to fix, not the plugin's.
+
+A failing version gets one issue, `Paseo <version> compatibility`, labelled `paseo-compat`, with each runner's failed step and the run. Each run that still fails updates it, and the first that passes on every runner closes it; a run started by hand from another branch only prints what it would do. To fix a failure, make the plugin work on both the oldest claimed release and the new one. If the new release dropped something the plugin cannot do without, raise the minimum in `paseo-plugin.json` and the pinned SDK together. Neither adds an upper bound.
+
 ## Issues and pull requests
 
 For a bug, include the steps to reproduce it, what you expected and what happened, the plugin, daemon and app versions, the daemon's OS and the agent. Leave out every real secret, the content of any `si-secret-` file, private paths and host names. A vulnerability goes through the private report that [SECURITY.md](SECURITY.md#reporting) describes, never an issue.
