@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The documentation is rewritten shorter: the README holds what you need to install and use the plugin, and the details live in SECURITY.md, CONTRIBUTING.md and the skill.
+
 ## 0.2.0 - 2026-10-28
 
 The first published release. It replaces 0.1.0, which was never published: the plugin no longer writes a value into a file or a command itself. It hands the agent a short-lived file instead, which the agent moves where the value belongs without reading it.
