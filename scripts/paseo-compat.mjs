@@ -1,14 +1,16 @@
 // One compatibility run of this plugin against one Paseo release, and the three parts of the Paseo compatibility
-// workflow that decide what to test and report what broke. Node.js built-ins only, plus the packages of the Paseo
+// workflow that decide what to test and report the outcome. Node.js built-ins only, plus the packages of the Paseo
 // release under test, which it installs into a temporary prefix. CONTRIBUTING.md ("Paseo compatibility") describes it.
 //
 //   node scripts/paseo-compat.mjs <version> [--with-sdk] [--verbose] [--result <file>]
 //   node scripts/paseo-compat.mjs resolve      (workflow) the versions to test: VERSIONS, or npm's latest and beta
 //   node scripts/paseo-compat.mjs select       (workflow) leaves out the versions that passed for this commit
-//   node scripts/paseo-compat.mjs report <dir> (workflow) opens, updates and closes one issue per version
+//   node scripts/paseo-compat.mjs report <dir> (workflow) opens, updates and closes the issues
 //
-// It never reaches a daemon it did not start: every paseo command names the temporary home, the port is never 6767,
-// and the variables of the agent session it may run in are removed from every process it starts.
+// A run ends in pass, skip (the plugin does not claim the release), fail (the plugin does not work with it), or
+// unverified (this check reached no verdict: the mock provider, a CLI option or a module it relies on is not what it
+// was). It never reaches a daemon it did not start: every paseo command names the temporary home, the port is never
+// 6767, and what it starts keeps only an allowlist of the environment, with a home directory of its own.
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -16,23 +18,29 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readd
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 /**
- * What is particular to this plugin; everything below is the same for every plugin. The plugin's id and the range of
- * Paseo it claims come from `paseo-plugin.json`, and the SDK packages step 2 replaces are its `@getpaseo/*` dependencies.
+ * What is particular to this plugin. Everything below it is the same for every plugin: the plugin's id and the Paseo
+ * releases it claims come from `paseo-plugin.json`, the SDK packages step 2 replaces are its `@getpaseo/*`
+ * dependencies in `package.json`, and the runners are the workflow's.
  */
 export const PLUGIN = {
-  /** The module that defines the RPC contracts. It is bundled with the esbuild of the Paseo under test, and every answer is parsed with the contract's own schema. */
+  /**
+   * The module that defines the RPC contracts (`defineRpc`). It is bundled with the esbuild of the Paseo under test,
+   * and every answer is parsed with the contract's own schema. `null` for a plugin without RPCs: step 4 is not run.
+   */
   contracts: "shared/contracts.ts",
-  /** Step 4: calls through the daemon, as the app makes them. A `refusal` is text the plugin's refusal must contain. */
+  /** Step 4: calls through the daemon, as the app makes them, by contract. A `refusal` is text the plugin's refusal must contain. */
   rpc: [
     { contract: "readDiagnostics", input: {} },
     { contract: "getRequest", input: { requestId: `r_${"0".repeat(32)}` }, refusal: "invalid_request: unknown request" },
   ],
-  /** Step 5: read after an agent's session opened and its turn ended. Each entry `problems` returns is a failure. */
+  /** Step 5: an agent session and one turn through the plugin's hooks. `false` for a plugin that registers none: step 5 is not run. */
+  hooks: true,
+  /** Step 5, after the turn: a call whose answer says whether a hook failed, and the problems it names. `null` for none. */
   diagnostics: {
     contract: "readDiagnostics",
     input: {},
@@ -45,6 +53,8 @@ export const PLUGIN = {
       ].filter(Boolean),
     summary: "attached, no hook failure",
   },
+  /** Variables beyond the allowlist of `childEnv` that the plugin's tests need in step 2. */
+  env: [],
 };
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -53,7 +63,8 @@ export const RESERVED_PORT = 6767;
 /** A release number as npm publishes Paseo's: no `v`, no range, no build metadata, so no other npm spec gets through. */
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 const DIST_TAGS = ["latest", "beta"];
-const LABEL = "paseo-compat";
+/** One issue per version and kind: the plugin fails with the release, or this check could not reach a verdict on it. */
+export const LABELS = { plugin: "paseo-compat", harness: "paseo-compat-harness" };
 const STEP_NAMES = { 1: "range", 2: "sdk", 3: "daemon", 4: "rpc", 5: "hooks", 6: "cleanup" };
 /** How many cache lookups the workflow's resolve job makes: one for each dist-tag. */
 const LOOKUPS = DIST_TAGS.length;
@@ -61,6 +72,33 @@ const LOOKUPS = DIST_TAGS.length;
 const PROMPT = "paseo-compat: one turn through the plugin's hooks";
 /** How long the event handlers get after the turn ended before the diagnostics are read: the daemon does not wait for them. */
 const EVENT_GRACE_MS = 2_000;
+/** How long a command that has exited may keep its output open through a process it left behind. */
+const PIPE_GRACE_MS = 500;
+/** How long the processes of a command that is asked to stop get before they are killed. */
+const STOP_GRACE_MS = 2_000;
+/** The signals that interrupt a run, which then cleans up. */
+export const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
+
+// --------------------------------------------------------------------------------------------------------------------
+// Outcomes
+// --------------------------------------------------------------------------------------------------------------------
+
+/** The plugin does not work with the release: a step fails. */
+export class StepFailure extends Error {
+  constructor(message, excerpt) {
+    super(message);
+    this.excerpt = excerpt;
+  }
+}
+
+/**
+ * This check reached no verdict: what failed is something the script relies on (the mock provider, a CLI option or
+ * output, a module of the release, the network), not the plugin. It files no plugin issue and is never recorded as a pass.
+ */
+export class Unverified extends StepFailure {}
+
+/** The plugin does not claim the release. */
+export class Skip extends Error {}
 
 // --------------------------------------------------------------------------------------------------------------------
 // Pure parts, exported for tests/paseo-compat.test.ts
@@ -113,26 +151,44 @@ export function select(versions, hits) {
   return { tested, cached };
 }
 
-/** Variable names of the agent session this may run in, and of secure-input's bridge, which no child may inherit. */
-const SESSION_VARIABLES = ["PASEO_AGENT_ID", "PASEO_HOME", "PASEO_HOST", "PASEO_AGENT_CWD", "PASEO_PASSWORD", "SECURE_INPUT_BINDING", "SECURE_INPUT_CLI", "CLAUDECODE"];
-const SESSION_PREFIXES = ["PASEO_", "SECURE_INPUT_", "CLAUDE_CODE_", "CODEX_COMPANION_"];
-/** What `npm run` adds for its script, which would steer the npm commands this script runs. */
-const NPM_RUN_VARIABLE = /^(npm_(config|lifecycle|package)_|npm_command$|npm_execpath$|npm_node_execpath$|INIT_CWD$)/;
+/**
+ * The variables a child keeps, by name: what finds programs and temporary files, the locale and the terminal, what CI,
+ * a proxy or a private CA needs, and npm's own settings. Anything else stays behind: a provider's key or configuration
+ * directory (ANTHROPIC_API_KEY, CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_*), an agent session's variables (PASEO_*), an SSH
+ * agent, NODE_OPTIONS.
+ */
+const KEPT = /^(PATH|TMPDIR|TERM|CI|LANG|LANGUAGE|LC_[A-Z]+|GITHUB_[A-Z0-9_]+|RUNNER_[A-Z0-9_]+|HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy|ALL_PROXY|all_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|NPM_CONFIG_[A-Z0-9_]+)$/;
+/** Of those, what no child gets: the job's token, and the files a step writes the job's environment and outputs to. */
+const WITHHELD = new Set(["GITHUB_TOKEN", "GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT", "GITHUB_STATE", "GITHUB_STEP_SUMMARY"]);
+
+function inside(path, directory) {
+  return path === directory || path.startsWith(directory.endsWith(sep) ? directory : `${directory}${sep}`);
+}
 
 /**
- * The environment of a process this script starts: without the session's variables (every `PASEO_*` among them), without
- * anything that points into the owner's Paseo home, and with `set` on top. PATH keeps its entries outside that home.
+ * The environment of a process this script starts: the allowlisted variables of `env` and the plugin's own `keep`,
+ * none whose value points into the owner's Paseo home (PATH keeps its other entries), and `set` on top, which is where
+ * the home directory of a child comes from.
  */
-export function childEnv(env, set = {}, ownerHome = join(homedir(), ".paseo")) {
-  const inOwnerHome = (value) => value === ownerHome || value.includes(`${ownerHome}/`);
+export function childEnv(env, set = {}, { keep = PLUGIN.env, ownerHome = join(homedir(), ".paseo") } = {}) {
   const result = {};
   for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) continue;
-    if (SESSION_VARIABLES.includes(key) || SESSION_PREFIXES.some((prefix) => key.startsWith(prefix)) || NPM_RUN_VARIABLE.test(key)) continue;
-    if (key === "PATH") result.PATH = value.split(delimiter).filter((entry) => !inOwnerHome(entry)).join(delimiter);
-    else if (!inOwnerHome(value)) result[key] = value;
+    if (value === undefined || WITHHELD.has(key) || !(KEPT.test(key) || keep.includes(key))) continue;
+    if (key === "PATH") result.PATH = value.split(delimiter).filter((entry) => !inside(entry, ownerHome)).join(delimiter);
+    else if (!value.split(delimiter).some((part) => inside(part, ownerHome))) result[key] = value;
   }
   return { ...result, ...set };
+}
+
+/**
+ * Throws unless a paseo command names `home` as its one `--home` and no `--host`, so that it cannot reach another
+ * daemon. A refusal is a mistake of this script, never the plugin's.
+ */
+export function assertOwnHome(args, home) {
+  const at = args.indexOf("--home");
+  if (at === -1 || args[at + 1] !== home || args.lastIndexOf("--home") !== at) throw new Unverified(`refusing a paseo command that does not name the home ${home}: ${args.join(" ")}`);
+  if (args.some((arg) => arg === "--host" || arg.startsWith("--host=") || arg.startsWith("--home="))) throw new Unverified(`refusing a paseo command with another target: ${args.join(" ")}`);
+  return args;
 }
 
 /** Throws for the owner's port, and for anything that is not a TCP port. */
@@ -142,29 +198,20 @@ export function checkPort(port) {
   return port;
 }
 
+/** The address a daemon publishes, held to the one this run configured: loopback, never the owner's port. */
+export function checkListen(published, expected) {
+  const match = /^127\.0\.0\.1:(\d+)$/.exec(String(published));
+  if (!match) throw new Unverified(`the daemon publishes ${published ?? "no address"}, not a loopback address`);
+  if (Number(match[1]) === RESERVED_PORT) throw new Unverified(`refusing ${published}: the owner's Paseo daemon listens on port ${RESERVED_PORT}`);
+  if (published !== expected) throw new Unverified(`the daemon publishes ${published}, not ${expected}`);
+  return published;
+}
+
 /** The JSON a `paseo … --json` command printed, from its first line that opens an object or an array. */
 export function jsonFrom(text) {
   const start = String(text).search(/^[[{]/m);
   if (start === -1) throw new Error("no JSON in the output");
   return JSON.parse(String(text).slice(start));
-}
-
-/** What a failed command said: the message of the CLI's JSON error when there is one, else its last line of output. */
-export function failureOf(result) {
-  for (const text of [result.stderr, result.stdout]) {
-    try {
-      const message = jsonFrom(text)?.error?.message;
-      if (message) return oneLine(message);
-    } catch {
-      // Not JSON: the last line below.
-    }
-  }
-  const lines = plain(`${result.stderr}\n${result.stdout}`).split("\n").map((line) => line.trim()).filter(Boolean);
-  // npm ends with where its log is; the line that says what went wrong comes before, after its code.
-  const npm = lines.find((line) => /^npm (error|ERR!) /.test(line) && !/^npm (error|ERR!) (code |A complete log)/.test(line));
-  const last = npm ?? lines.pop();
-  if (result.timedOut) return `timed out${last ? `: ${oneLine(last)}` : ""}`;
-  return last ? oneLine(last) : `exited ${result.code ?? result.signal}`;
 }
 
 /** Terminal colours (vitest colours its output when CI is set) and the other control characters but tab and line feed. */
@@ -179,6 +226,35 @@ export function oneLine(text, max = 400) {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/** The error the Paseo CLI answers a command it ran with, `{ "error": { code, message } }`; undefined when it printed none. */
+export function cliError(result) {
+  for (const text of [result.stderr, result.stdout]) {
+    let parsed;
+    try {
+      parsed = jsonFrom(text);
+    } catch {
+      continue;
+    }
+    const error = parsed?.error;
+    if (error && typeof error === "object") return { code: error.code ?? null, message: oneLine(error.message ?? error.code ?? JSON.stringify(error)) };
+  }
+  return undefined;
+}
+
+/** What a failed command said, in one line: the CLI's error, npm's reason, or the last line it printed. */
+export function failureOf(result) {
+  const error = cliError(result);
+  if (error) return error.message;
+  const lines = plain(`${result.stderr}\n${result.stdout}`)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^[[\]{}(),]+$/.test(line));
+  // npm ends with where its log is; the line that says what went wrong comes before, after its code.
+  const reason = lines.find((line) => /^npm (error|ERR!) /.test(line) && !/^npm (error|ERR!) (code |A complete log)/.test(line)) ?? lines.at(-1);
+  if (result.timedOut) return `timed out${reason ? `: ${oneLine(reason)}` : ""}`;
+  return reason ? oneLine(reason) : `exited ${result.code ?? result.signal}`;
+}
+
 /** The line of a test or typecheck output that names what failed first. */
 export function firstProblem(output) {
   const lines = plain(output).split("\n");
@@ -186,41 +262,202 @@ export function firstProblem(output) {
   return found ? oneLine(found) : undefined;
 }
 
+/** The last lines a command printed, indentation kept, for the console and the issue. */
+export function excerptOf(result, lines = 40) {
+  return plain(`${result.stdout}\n${result.stderr}`)
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(-lines)
+    .map((line) => (line.length > 400 ? `${line.slice(0, 399)}…` : line))
+    .join("\n");
+}
+
+/** npm's error code (ETARGET, E404, …) in what it printed. */
+function npmCode(result) {
+  return /npm (?:error|ERR!) code (\S+)/.exec(plain(result.stderr))?.[1];
+}
+
+/** The refusal `assertPluginCompatibility` gives a release outside the range: the only outcome of it that is a skip. */
+const OUT_OF_RANGE = /^Plugin ".+" requires Paseo .+\. Your (daemon|app) is .+\./;
+
+/** Step 1's verdict, by the release's own `assertPluginCompatibility`, for the daemon and for the app. */
+export function claimOf(assertPluginCompatibility, { id, requirements, version }) {
+  for (const runtime of ["daemon", "app"]) {
+    try {
+      assertPluginCompatibility({ id, requirements, version, runtime });
+    } catch (error) {
+      const message = oneLine(error?.message ?? error);
+      if (OUT_OF_RANGE.test(message)) return { status: "skip", detail: message };
+      return { status: "fail", detail: `assertPluginCompatibility refused the manifest, not for the range: ${message}` };
+    }
+  }
+  return { status: "pass", detail: `${requirements?.paseo} admits Paseo ${version} on the daemon and in the app` };
+}
+
+/**
+ * The JSON a `paseo … --json` command printed. A command the CLI ran and that failed answers with its JSON error, which
+ * becomes a `Failure` (the step decides whose failure that is). Anything else that is not JSON means that the CLI did not
+ * run the command as this script asks it to (commander's "unknown option", a crash): this check is the one to fix.
+ */
+export function cliJson(result, what, Failure = Unverified) {
+  if (result.code !== 0) {
+    const error = cliError(result);
+    if (!error) throw new Unverified(`${what} did not run as this script asks it to: ${failureOf(result)}`, excerptOf(result));
+    throw new Failure(`${what}: ${error.message}`, excerptOf(result));
+  }
+  try {
+    return jsonFrom(result.stdout);
+  } catch {
+    throw new Unverified(`${what} printed no JSON: ${oneLine(result.stdout || result.stderr)}`, excerptOf(result));
+  }
+}
+
+function listOf(json, what) {
+  if (!Array.isArray(json)) throw new Unverified(`${what} printed no list: ${oneLine(JSON.stringify(json))}`);
+  return json;
+}
+
+/** `paseo daemon start --json`: the supervisor's pid and the address it published. */
+export function startedDaemon(json) {
+  if (!Number.isInteger(json?.pid) || typeof json?.listen !== "string") throw new Unverified(`paseo daemon start named no pid and address: ${oneLine(JSON.stringify(json))}`);
+  return { pid: json.pid, listen: json.listen };
+}
+
+/** `paseo plugin ls --json`: the plugin's entry, or undefined while it is not listed. */
+export function pluginEntry(json, id) {
+  return listOf(json, "paseo plugin ls").find((entry) => entry?.id === id);
+}
+
+/** `paseo plugin logs --json`: "ready" once the daemon logged it, the daemon's failure message, or undefined for neither yet. */
+export function loadState(json) {
+  const entries = listOf(json, "paseo plugin logs");
+  const failed = entries.find((entry) => /^\[paseo\] Plugin failed/.test(entry?.message ?? ""));
+  if (failed) return { failed: oneLine(failed.message) };
+  return entries.some((entry) => entry?.message === "[paseo] Plugin ready") ? "ready" : undefined;
+}
+
+/** `paseo plugin logs --json`: what the daemon logged when a lifecycle event of the plugin failed, or undefined. */
+export function lifecycleFailure(json) {
+  return listOf(json, "paseo plugin logs").find((entry) => /^Lifecycle hook \S+ failed/.test(entry?.message ?? ""))?.message;
+}
+
+/** `paseo provider ls --json`: whether the daemon has a provider of this id. */
+export function hasProvider(json, id) {
+  return listOf(json, "paseo provider ls").some((entry) => entry?.provider === id);
+}
+
+/** `paseo provider models mock --json`: the model the catalog says is for smoke checks, else its first one. */
+export function smokeModel(json) {
+  const models = listOf(json, "paseo provider models mock");
+  const model = models.find((entry) => /smoke/i.test(entry?.description ?? "")) ?? models[0];
+  if (typeof model?.id !== "string") throw new Unverified("the mock provider lists no model");
+  return model.id;
+}
+
+/**
+ * `paseo run --json`: the agent and how its turn ended. An error that names the plugin is the plugin's (the daemon
+ * says "Plugin <id> before agent.session_open failed" when a hook's answer fails its schema); any other is this check's.
+ */
+export function runOutcome(result, pluginId) {
+  if (result.code !== 0) {
+    const error = cliError(result);
+    if (!error) throw new Unverified(`paseo run did not run as this script asks it to: ${failureOf(result)}`, excerptOf(result));
+    const named = new RegExp(`(^|[^\\w-])${pluginId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\w-]|$)`).test(error.message);
+    if (named) throw new StepFailure(`the agent was not created: ${error.message}`, excerptOf(result));
+    throw new Unverified(`the agent was not created, for a reason that names no plugin: ${error.message}`, excerptOf(result));
+  }
+  let agent;
+  try {
+    agent = jsonFrom(result.stdout);
+  } catch {
+    agent = undefined;
+  }
+  if (typeof agent?.agentId !== "string" || typeof agent?.status !== "string") throw new Unverified(`paseo run named no agent: ${oneLine(result.stdout || result.stderr)}`, excerptOf(result));
+  return { agentId: agent.agentId, status: agent.status };
+}
+
+/** `paseo ls --json`: whether the agent is listed. */
+export function listsAgent(json, agentId) {
+  return listOf(json, "paseo ls").some((entry) => entry?.id === agentId);
+}
+
+/** `paseo daemon stop --json`: whether the stop is confirmed (it exited 0), and what to say of it. */
+export function stopOutcome(result) {
+  if (result.code !== 0) return { confirmed: false, said: `paseo daemon stop: ${failureOf(result)}` };
+  let action;
+  try {
+    action = jsonFrom(result.stdout)?.action;
+  } catch {
+    action = undefined;
+  }
+  return { confirmed: true, said: action === "stopped" ? "daemon stopped" : action === "not_running" ? "no daemon was running" : "paseo daemon stop exited 0" };
+}
+
 export function formatStep({ step, name, status, detail }) {
   return `${step} ${name.padEnd(7)} ${status.padEnd(4)} ${detail}`;
 }
 
-export function issueTitle(version) {
-  return `Paseo ${version} compatibility`;
+// --------------------------------------------------------------------------------------------------------------------
+// Issues
+// --------------------------------------------------------------------------------------------------------------------
+
+export const TITLES = {
+  plugin: (version) => `Paseo ${version} compatibility`,
+  harness: (version) => `Paseo ${version} compatibility could not be checked`,
+};
+
+/** The hidden first line of an issue body: its kind, its version, and which runner ended so at which step. */
+const MARKER = /^<!-- paseo-compat(?: kind=(plugin|harness))? version=(\S+) failing=(\S*) -->/;
+
+function markerOf(body) {
+  const match = MARKER.exec(body ?? "");
+  return match ? { kind: match[1] ?? "plugin", version: match[2], signature: match[3] } : undefined;
 }
 
-/** The hidden first line of an issue body: which version it is for, and which runner failed at which step. */
-const MARKER = /^<!-- paseo-compat version=(\S+) failing=(\S*) -->/;
+/** The version an issue is about: its marker's, or its title's. */
+function versionOfIssue(issue) {
+  return markerOf(issue.body)?.version ?? /^Paseo (\S+) compatibility/.exec(issue.title ?? "")?.[1];
+}
 
-function signatureOf(legs) {
+function signatureOf(legs, status) {
   return legs
-    .filter((leg) => leg.status === "fail")
+    .filter((leg) => leg.status === status)
     .map((leg) => `${leg.runner}:${leg.failed?.step ?? "none"}`)
     .sort()
     .join(",");
 }
 
-function cell(text) {
-  return oneLine(text, 300).replace(/\|/g, "\\|");
+/** Text for Markdown outside code: no HTML, no @-mention (a package scope such as `@getpaseo/cli` goes in a code span), no column break. */
+export function markdownText(text, max = 300) {
+  return oneLine(text, max)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/(^|[^\w`])(@[\w.-]+(?:\/[\w.-]+)?(?:@[\w.^~=*+-]+)?)/g, "$1`$2`")
+    .replace(/\|/g, "\\|");
 }
 
 function legResult(leg) {
   if (leg.status === "pass") return "pass";
-  if (leg.status === "skip") return `skip: ${cell(leg.failed?.detail ?? "not claimed")}`;
+  if (leg.status === "skip") return `skip: ${markdownText(leg.failed?.detail ?? "not claimed")}`;
   const where = leg.failed?.step ? ` at step ${leg.failed.step} (${leg.failed.name})` : "";
-  return `**fail**${where}: ${cell(leg.failed?.detail ?? "")}`;
+  return `**${leg.status}**${where}: ${markdownText(leg.failed?.detail ?? "")}`;
 }
 
-/** The body of the issue of a failing version. */
-export function issueBody({ plugin, version, legs, run }) {
+/** The body of the issue of a version: `plugin` for a version the plugin fails with, `harness` for one this check could not judge. */
+export function issueBody({ kind, plugin, version, legs, run }) {
+  const status = kind === "plugin" ? "fail" : "unverified";
+  const lead =
+    kind === "plugin"
+      ? `${plugin} failed its compatibility run against Paseo ${version} at ${run.sha.slice(0, 12)}.`
+      : `The compatibility run of ${plugin} against Paseo ${version} at ${run.sha.slice(0, 12)} reached no verdict on a runner: what failed is the check itself (scripts/paseo-compat.mjs and what it relies on: the mock provider, the CLI, the network), not necessarily the plugin. No plugin issue was filed for it and no pass was recorded.`;
+  const closes =
+    kind === "plugin"
+      ? "Each run that still fails updates this issue; the first run that passes on every runner closes it."
+      : "Each run that still reaches no verdict updates this issue; the first run that reaches one on every runner closes it.";
   const lines = [
-    `<!-- paseo-compat version=${version} failing=${signatureOf(legs)} -->`,
-    `${plugin} failed its compatibility run against Paseo ${version} at ${run.sha.slice(0, 12)}.`,
+    `<!-- paseo-compat kind=${kind} version=${version} failing=${signatureOf(legs, status)} -->`,
+    lead,
     "",
     "| Runner | Result |",
     "| --- | --- |",
@@ -228,47 +465,67 @@ export function issueBody({ plugin, version, legs, run }) {
     "",
     `Run: ${run.url}`,
     "",
-    `To reproduce: \`npm run test:paseo -- ${version}\` (steps 1 and 3 to 6; add \`--with-sdk\` for step 2, and run \`npm ci\` afterwards if it was interrupted). It uses a daemon of its own in a temporary home.`,
+    `To reproduce: \`npm run test:paseo -- ${version}\` (steps 1 and 3 to 6; add \`--with-sdk\` for step 2). It uses a daemon of its own in a temporary home.`,
     "",
-    "Each run that still fails updates this issue; the first run that passes on every runner closes it.",
+    `${closes} Once npm's \`latest\` and \`beta\` have both moved past a pre-release, a scheduled run closes its issue, since it tests that release no more.`,
   ];
-  for (const leg of legs.filter((entry) => entry.status === "fail" && entry.excerpt)) {
-    lines.push("", `<details><summary>${leg.runner}: output of the failed step</summary>`, "", "~~~", leg.excerpt.replace(/~~~/g, "~ ~ ~"), "~~~", "", "</details>");
+  for (const leg of legs.filter((entry) => entry.status === status && entry.excerpt)) {
+    lines.push("", `<details><summary>${leg.runner}: output of the step</summary>`, "", "~~~", leg.excerpt.replace(/~~~/g, "~ ~ ~"), "~~~", "", "</details>");
   }
   return `${lines.join("\n")}\n`;
 }
 
 /**
- * What a report does, from the results of the runners and the open issues: one issue per failing version (opened,
- * or updated in place, with a comment when what fails has changed), the issue of a passing version closed, and the
- * versions that passed on every runner, to be recorded in the cache. A runner without a result is a failure.
+ * What a report does, from the results of the runners and the open issues (each with the `kind` of the label it was
+ * found under). Per version: the plugin's issue is opened or updated while a runner fails and closed once every runner
+ * passes; the check's issue is opened or updated while a runner reaches no verdict (a runner without a result among
+ * them) and closed once every runner reaches one. An update comments only when what ends so has changed. The issues of
+ * pre-releases that npm's dist-tags (`heads`) have moved past are closed, and the versions that passed on every
+ * runner are the ones to record.
  */
-export function planReport({ plugin, versions, runners, results, openIssues, run }) {
+export function planReport({ plugin, versions, runners, results, openIssues, run, heads = [] }) {
   const verdicts = versions.map((version) => {
     const legs = runners.map((runner) => {
       const result = results.find((entry) => entry.version === version && entry.runner === runner);
       if (result) return { runner, status: result.status, failed: result.failed ?? null, excerpt: result.excerpt };
-      return { runner, status: "fail", failed: { step: null, name: "result", detail: "the job ended before the compatibility script wrote a result (cancelled, timed out or crashed): see the run" } };
+      return { runner, status: "unverified", failed: { step: null, name: "result", detail: "no result: the job ended before the compatibility script wrote one (cancelled, timed out or crashed); see the run" } };
     });
-    const status = legs.some((leg) => leg.status === "fail") ? "fail" : legs.every((leg) => leg.status === "pass") ? "pass" : "skip";
+    const status = legs.some((leg) => leg.status === "fail") ? "fail" : legs.some((leg) => leg.status === "unverified") ? "unverified" : legs.every((leg) => leg.status === "pass") ? "pass" : "skip";
     return { version, status, legs };
   });
-  const issueOf = (version) =>
-    openIssues.find((issue) => issue.title === issueTitle(version)) ?? openIssues.find((issue) => MARKER.exec(issue.body ?? "")?.[1] === version);
+  const issueOf = (kind, version) =>
+    openIssues.find((issue) => issue.kind === kind && (issue.title === TITLES[kind](version) || (markerOf(issue.body)?.kind === kind && markerOf(issue.body)?.version === version)));
   const actions = [];
-  for (const { version, status, legs } of verdicts) {
-    const issue = issueOf(version);
-    if (status === "fail") {
-      const body = issueBody({ plugin, version, legs, run });
-      if (!issue) actions.push({ kind: "create", version, title: issueTitle(version), body });
-      else {
-        const before = MARKER.exec(issue.body ?? "")?.[2];
-        const changed = before !== signatureOf(legs);
-        const comment = changed ? `What fails has changed, in ${run.url}:\n\n${legs.map((leg) => `- ${leg.runner}: ${legResult(leg)}`).join("\n")}\n` : undefined;
-        actions.push({ kind: "update", version, number: issue.number, body, ...(comment ? { comment } : {}) });
+  const keep = (kind, version, legs, open, close) => {
+    const issue = issueOf(kind, version);
+    const status = kind === "plugin" ? "fail" : "unverified";
+    if (open) {
+      const body = issueBody({ kind, plugin, version, legs, run });
+      if (!issue) {
+        actions.push({ kind: "create", issueKind: kind, version, title: TITLES[kind](version), label: LABELS[kind], body });
+        return;
       }
-    } else if (status === "pass" && issue) {
-      actions.push({ kind: "close", version, number: issue.number, comment: `Paseo ${version} passed on ${runners.join(" and ")} in ${run.url} at ${run.sha.slice(0, 12)}.\n` });
+      const changed = markerOf(issue.body)?.signature !== signatureOf(legs, status);
+      const comment = changed ? `What ends so has changed, in ${run.url}:\n\n${legs.map((leg) => `- ${leg.runner}: ${legResult(leg)}`).join("\n")}\n` : undefined;
+      actions.push({ kind: "update", issueKind: kind, version, number: issue.number, body, ...(comment ? { comment } : {}) });
+    } else if (close && issue) {
+      const comment =
+        kind === "plugin"
+          ? `Paseo ${version} passed on ${runners.join(" and ")} in ${run.url} at ${run.sha.slice(0, 12)}.\n`
+          : `The run of Paseo ${version} in ${run.url} reached a verdict on ${runners.join(" and ")}.\n`;
+      actions.push({ kind: "close", issueKind: kind, version, number: issue.number, reason: "completed", comment });
+    }
+  };
+  for (const { version, status, legs } of verdicts) {
+    keep("plugin", version, legs, legs.some((leg) => leg.status === "fail"), status === "pass");
+    keep("harness", version, legs, legs.some((leg) => leg.status === "unverified"), !legs.some((leg) => leg.status === "unverified"));
+  }
+  if (heads.length) {
+    for (const issue of openIssues) {
+      const version = versionOfIssue(issue);
+      if (!version?.includes("-") || heads.includes(version) || versions.includes(version)) continue;
+      const comment = `Paseo ${version} is a pre-release that npm's \`latest\` and \`beta\` of the CLI have moved past (now ${heads.join(" and ")}), so no scheduled run tests it again. To test it anyway, run the workflow with the version ${version}.\n`;
+      actions.push({ kind: "close", issueKind: issue.kind, version, number: issue.number, reason: "not planned", comment });
     }
   }
   const record = verdicts.filter((verdict) => verdict.status === "pass").map(({ version }) => ({ version, key: cacheKey(version, run.sha) }));
@@ -282,17 +539,39 @@ export function planReport({ plugin, versions, runners, results, openIssues, run
 /** What is under way: the signal that interrupted the run, and the processes to stop when one comes. */
 const state = { interrupted: null, cleaning: false, finished: false, children: new Set(), verbose: false };
 
+function signalGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // Gone already.
+    }
+  }
+}
+
+/** Stops every command under way, with what each of them started: asked first, killed after `STOP_GRACE_MS`. */
+export function stopChildren(signal = "SIGTERM") {
+  for (const child of state.children) {
+    signalGroup(child, signal);
+    setTimeout(() => signalGroup(child, "SIGKILL"), STOP_GRACE_MS);
+  }
+}
+
 /**
- * Runs a program without a shell. Output is kept (its last 8 MiB) and echoed with `--verbose`; stdin is /dev/null.
- * Once the run is interrupted nothing new starts, but for the cleanup's own commands (`always`).
+ * Runs a program without a shell, in a process group of its own, so that a timeout or an interruption stops what it
+ * started as well. Output is kept (its last 8 MiB) and echoed with `--verbose`; stdin is /dev/null. It settles once
+ * the program has exited: a process it left behind with its output open is let go of after `PIPE_GRACE_MS`. Once the
+ * run is interrupted nothing new starts, but for the cleanup's own commands (`always`).
  */
-function run(command, args, { cwd = ROOT, env, timeoutMs = 120_000, echo = state.verbose, always = false } = {}) {
+export function run(command, args, { cwd = ROOT, env, timeoutMs = 120_000, echo = state.verbose, always = false } = {}) {
   return new Promise((resolvePromise) => {
     if (state.interrupted && !always) {
       resolvePromise({ code: null, signal: state.interrupted, stdout: "", stderr: "interrupted", timedOut: false });
       return;
     }
-    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     state.children.add(child);
     const output = { stdout: "", stderr: "" };
     const keep = (stream, target) =>
@@ -313,14 +592,21 @@ function run(command, args, { cwd = ROOT, env, timeoutMs = 120_000, echo = state
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      signalGroup(child, "SIGKILL");
     }, timeoutMs);
     child.on("error", (error) => {
       output.stderr += `\n${command}: ${error.message}`;
-      // A program that could not be started emits no close.
+      // A program that could not be started emits no exit.
       if (child.pid === undefined) settle(null, null);
     });
-    child.on("close", settle);
+    child.on("exit", (code, signal) => {
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        settle(code, signal);
+      }, PIPE_GRACE_MS);
+    });
+    child.on("close", (code, signal) => settle(code, signal));
   });
 }
 
@@ -339,66 +625,49 @@ async function waitFor(what, timeoutMs, probe) {
     const found = await probe();
     if (found !== undefined) return found;
     if (state.interrupted) throw new Error(`interrupted while waiting for ${what}`);
-    if (Date.now() >= until) throw new Error(`no ${what} after ${Math.round(timeoutMs / 1000)} s`);
+    if (Date.now() >= until) throw new StepFailure(`no ${what} after ${Math.round(timeoutMs / 1000)} s`);
     await sleep(500);
   }
 }
 
-class StepFailure extends Error {
-  constructor(message, excerpt) {
-    super(message);
-    this.excerpt = excerpt;
-  }
+/** Where npm keeps its cache: the developer's, so that a child's home directory of its own costs no download. */
+function npmCache(env = process.env) {
+  return env.NPM_CONFIG_CACHE ?? env.npm_config_cache ?? join(homedir(), ".npm");
 }
 
-class Skip extends Error {}
-
-/** Environment and paths of the npm and paseo processes of one run. */
-function processes(ctx) {
+/**
+ * The npm and paseo commands of one run. Each gets the allowlisted environment and `ctx.userHome` as its home
+ * directory, so that whatever a release or a test writes under `~` (agent skills, provider settings) lands in the
+ * temporary directory; npm keeps the developer's cache. A paseo command must name the temporary home.
+ */
+export function processes(ctx) {
   // `env node` in the CLI's shebang, and npm, are the Node.js this script runs on.
   const path = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`;
-  const base = childEnv({ ...process.env, PATH: path });
+  const base = childEnv({ ...process.env, PATH: path }, { HOME: ctx.userHome });
   return {
-    npm: (args, options = {}) => run("npm", args, { ...options, env: { ...base, ...options.env } }),
-    // The CLI and the daemon it starts get a home directory of their own: whatever a release writes under `~`
-    // (agent skills, provider settings) lands in the temporary directory.
+    npm: (args, options = {}) => run("npm", args, { ...options, env: { ...base, NPM_CONFIG_CACHE: npmCache(), ...options.env } }),
     paseo: (args, options = {}) => {
-      if (!args.includes("--home") || args[args.indexOf("--home") + 1] !== ctx.home) throw new Error(`refusing a paseo command without --home ${ctx.home}`);
-      return run(join(ctx.prefix, "node_modules", ".bin", "paseo"), args, {
-        ...options,
-        cwd: ctx.temp,
-        env: childEnv(base, { HOME: ctx.userHome, ...options.env }),
-      });
+      assertOwnHome(args, ctx.home);
+      return run(join(ctx.prefix, "node_modules", ".bin", "paseo"), args, { ...options, cwd: ctx.temp, env: { ...base, ...options.env } });
     },
   };
 }
 
-async function paseoJson(ctx, args, options) {
-  const result = await ctx.proc.paseo([...args, "--home", ctx.home, "--json"], options);
-  if (result.code !== 0) throw new StepFailure(`paseo ${args.slice(0, 2).join(" ")}: ${failureOf(result)}`, excerptOf(result));
-  try {
-    return jsonFrom(result.stdout);
-  } catch {
-    throw new StepFailure(`paseo ${args.slice(0, 2).join(" ")} printed no JSON: ${oneLine(result.stdout || result.stderr)}`);
-  }
-}
-
-/** The last lines a command printed, indentation kept, for the console and the issue. */
-export function excerptOf(result, lines = 40) {
-  return plain(`${result.stdout}\n${result.stderr}`)
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .slice(-lines)
-    .map((line) => (line.length > 400 ? `${line.slice(0, 399)}…` : line))
-    .join("\n");
+/** A paseo command's JSON; a JSON error of the CLI becomes a `failure` (by default this check's, not the plugin's). */
+async function paseoJson(ctx, args, { failure = Unverified, ...options } = {}) {
+  const what = `paseo ${args.slice(0, args[0] === "daemon" || args[0] === "plugin" || args[0] === "provider" || args[0] === "agent" ? 2 : 1).join(" ")}`;
+  return cliJson(await ctx.proc.paseo([...args, "--home", ctx.home, "--json"], options), what, failure);
 }
 
 /** Imports a package as the temporary prefix resolves it, or as `from`, a package in it, resolves it. */
 async function importFrom(prefix, name, from) {
-  let require = createRequire(join(prefix, "package.json"));
-  if (from) require = createRequire(require.resolve(from));
-  return import(pathToFileURL(require.resolve(name)).href);
+  try {
+    let require = createRequire(join(prefix, "package.json"));
+    if (from) require = createRequire(require.resolve(from));
+    return await import(pathToFileURL(require.resolve(name)).href);
+  } catch (error) {
+    throw new Unverified(`${name}${from ? ` (as ${from} resolves it)` : ""} could not be loaded: ${oneLine(error?.message ?? error)}`);
+  }
 }
 
 function installedVersion(directory, name) {
@@ -422,7 +691,7 @@ async function freePort() {
     });
     if (port !== RESERVED_PORT) return checkPort(port);
   }
-  throw new StepFailure("the system offered no free port but the owner's");
+  throw new Unverified("the system offered no free port but the owner's");
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -432,16 +701,13 @@ async function freePort() {
 /** Step 1, also the resolve job's: whether the plugin claims `version`, by that release's own rule. */
 async function claim(ctx, version, prefix) {
   const install = await ctx.proc.npm(["install", "--prefix", prefix, "--no-audit", "--no-fund", "--ignore-scripts", "--loglevel=error", `@getpaseo/protocol@${version}`], { timeoutMs: 300_000 });
-  if (install.code !== 0) throw new StepFailure(`npm could not install @getpaseo/protocol@${version}: ${failureOf(install)}`, excerptOf(install));
+  if (install.code !== 0) throw new Unverified(`npm could not install @getpaseo/protocol@${version}: ${failureOf(install)}`, excerptOf(install));
   const { assertPluginCompatibility } = await importFrom(prefix, "@getpaseo/protocol/plugin-requirements");
-  if (typeof assertPluginCompatibility !== "function") throw new StepFailure(`@getpaseo/protocol@${version} has no assertPluginCompatibility`);
-  const { id, requirements } = ctx.manifest;
-  try {
-    for (const runtime of ["daemon", "app"]) assertPluginCompatibility({ id, requirements, version, runtime });
-  } catch (error) {
-    throw new Skip(oneLine(error.message));
-  }
-  return `${requirements?.paseo} admits Paseo ${version} on the daemon and in the app, by @getpaseo/protocol@${version}`;
+  if (typeof assertPluginCompatibility !== "function") throw new Unverified(`@getpaseo/protocol@${version} has no assertPluginCompatibility`);
+  const verdict = claimOf(assertPluginCompatibility, { id: ctx.manifest.id, requirements: ctx.manifest.requirements, version });
+  if (verdict.status === "skip") throw new Skip(verdict.detail);
+  if (verdict.status === "fail") throw new StepFailure(verdict.detail);
+  return `${verdict.detail}, by @getpaseo/protocol@${version}`;
 }
 
 /** The `@getpaseo/*` packages the plugin depends on, with the exact versions its lock file installs. */
@@ -459,9 +725,13 @@ async function sdk(ctx) {
   const packages = sdkPackages();
   ctx.sdkReplaced = packages;
   const install = await ctx.proc.npm(["install", "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error", ...packages.map(({ name }) => `${name}@${ctx.version}`)], { timeoutMs: 300_000 });
-  if (install.code !== 0) throw new StepFailure(`npm could not install the SDK of ${ctx.version}: ${failureOf(install)}`, excerptOf(install));
+  if (install.code !== 0) {
+    // A package the plugin depends on that the release does not publish is the plugin's to deal with; anything else is npm's.
+    const Failure = ["ETARGET", "E404"].includes(npmCode(install)) ? StepFailure : Unverified;
+    throw new Failure(`npm could not install the SDK of ${ctx.version}: ${failureOf(install)}`, excerptOf(install));
+  }
   const stray = packages.filter(({ name }) => installedVersion(ROOT, name) !== ctx.version);
-  if (stray.length) throw new StepFailure(`npm installed ${stray.map(({ name }) => `${name}@${installedVersion(ROOT, name)}`).join(", ")}, not ${ctx.version}`);
+  if (stray.length) throw new Unverified(`npm installed ${stray.map(({ name }) => `${name}@${installedVersion(ROOT, name)}`).join(", ")}, not ${ctx.version}`);
   const failures = [];
   let excerpt;
   for (const script of ["typecheck", "test"]) {
@@ -469,7 +739,7 @@ async function sdk(ctx) {
     const result = await ctx.proc.npm(["run", script], { timeoutMs: 900_000, env: { PASEO_COMPAT_SDK: ctx.version } });
     if (result.code === 0) continue;
     const problem = firstProblem(`${result.stdout}\n${result.stderr}`);
-    failures.push(`npm run ${script} exited ${result.code ?? result.signal}${problem ? `: ${problem}` : ""}`);
+    failures.push(`npm run ${script} ${result.timedOut ? "timed out" : `exited ${result.code ?? result.signal}`}${problem ? `: ${problem}` : ""}`);
     excerpt ??= excerptOf(result, 60);
   }
   if (failures.length) throw new StepFailure(failures.join("; "), excerpt);
@@ -482,17 +752,16 @@ async function daemon(ctx) {
     ["install", "--prefix", ctx.prefix, "--no-audit", "--no-fund", "--loglevel=error", ...["cli", "client", "protocol"].map((name) => `@getpaseo/${name}@${ctx.version}`)],
     { timeoutMs: 900_000 },
   );
-  if (install.code !== 0) throw new StepFailure(`npm could not install @getpaseo/cli@${ctx.version}: ${failureOf(install)}`, excerptOf(install));
+  if (install.code !== 0) throw new Unverified(`npm could not install @getpaseo/cli@${ctx.version}: ${failureOf(install)}`, excerptOf(install));
   for (const name of ["@getpaseo/cli", "@getpaseo/server", "@getpaseo/client"]) {
     const found = installedVersion(ctx.prefix, name);
-    if (found !== ctx.version) throw new StepFailure(`the prefix has ${name}@${found}, not ${ctx.version}`);
+    if (found !== ctx.version) throw new Unverified(`the prefix has ${name}@${found}, not ${ctx.version}`);
   }
 
   ctx.listen = `127.0.0.1:${await freePort()}`;
   mkdirSync(ctx.home, { recursive: true, mode: 0o700 });
-  mkdirSync(ctx.userHome, { recursive: true, mode: 0o700 });
-  // All before the first start. The skills selection keeps a fresh home of 0.14 from rewriting the Paseo skills in
-  // ~/.agents and ~/.claude (here the temporary home directory as well). `daemon start` drops PASEO_DICTATION_ENABLED
+  // All before the first start. The skills selection keeps a fresh home of 0.14 from rewriting the Paseo skills under
+  // ~/.agents and ~/.claude (the temporary home directory's, besides). `daemon start` drops PASEO_DICTATION_ENABLED
   // from the daemon's environment, so the setting is what keeps it from downloading a speech model; a release that
   // renamed it costs a download, not the run.
   const settings = [
@@ -513,27 +782,25 @@ async function daemon(ctx) {
   }
 
   // The mock provider exists only in a development daemon.
-  const started = await paseoJson(ctx, ["daemon", "start", "--timeout", "150"], {
-    timeoutMs: 180_000,
-    env: { PASEO_NODE_ENV: "development", PASEO_DICTATION_ENABLED: "false" },
-  });
+  const started = startedDaemon(
+    await paseoJson(ctx, ["daemon", "start", "--timeout", "150"], { timeoutMs: 180_000, env: { PASEO_NODE_ENV: "development", PASEO_DICTATION_ENABLED: "false" } }),
+  );
   ctx.daemonPid = started.pid;
-  if (started.listen !== ctx.listen) throw new StepFailure(`the daemon listens on ${started.listen}, not ${ctx.listen}`);
+  checkListen(started.listen, ctx.listen);
 
+  // The install is where the daemon first compiles and loads the plugin: what fails there is the plugin's.
   // Trusting a plugin asks nothing when stdin is not a terminal; stdin is /dev/null.
-  await paseoJson(ctx, ["plugin", "install", ROOT], { timeoutMs: 300_000 });
+  await paseoJson(ctx, ["plugin", "install", ROOT], { timeoutMs: 300_000, failure: StepFailure });
   const id = ctx.manifest.id;
   const entry = await waitFor(`${id} running`, 60_000, async () => {
-    const plugin = (await paseoJson(ctx, ["plugin", "ls"])).find((item) => item.id === id);
-    if (plugin?.status === "running") return plugin;
+    const plugin = pluginEntry(await paseoJson(ctx, ["plugin", "ls"]), id);
     if (plugin?.status === "failed") throw new StepFailure(`${id} failed to start: ${oneLine(plugin.error ?? "no reason given")}`);
-    return undefined;
+    return plugin?.status === "running" ? plugin : undefined;
   });
   await waitFor(`"Plugin ready" in the plugin's log`, 30_000, async () => {
-    const entries = await paseoJson(ctx, ["plugin", "logs", id]);
-    const failed = entries.find((item) => /^\[paseo\] Plugin failed/.test(item.message));
-    if (failed) throw new StepFailure(oneLine(failed.message));
-    return entries.some((item) => item.message === "[paseo] Plugin ready") ? true : undefined;
+    const loaded = loadState(await paseoJson(ctx, ["plugin", "logs", id]));
+    if (loaded?.failed) throw new StepFailure(loaded.failed);
+    return loaded;
   });
   return [`@getpaseo/cli ${ctx.version} on ${ctx.listen}; ${id} ${entry.status}, "Plugin ready" in its log`, ...notes].join("; ");
 }
@@ -542,18 +809,23 @@ async function daemon(ctx) {
 async function connect(ctx) {
   const { createHostClient } = await importFrom(ctx.prefix, "@getpaseo/client/node");
   const control = await importFrom(ctx.prefix, "@getpaseo/server/daemon-control");
-  const instance = await control.readDaemonInstance(ctx.home);
-  if (instance?.listen !== ctx.listen) throw new StepFailure(`the daemon of ${ctx.home} publishes ${instance?.listen ?? "no address"}, not ${ctx.listen}`);
-  checkPort(Number(instance.listen.split(":").pop()));
-  const client = createHostClient(instance.listen, {
+  if (typeof createHostClient !== "function" || typeof control.readDaemonInstance !== "function" || typeof control.readLocalCredentialForTarget !== "function") {
+    throw new Unverified("the client or daemon-control of this release lacks createHostClient, readDaemonInstance or readLocalCredentialForTarget");
+  }
+  const listen = checkListen((await control.readDaemonInstance(ctx.home))?.listen, ctx.listen);
+  const client = createHostClient(listen, {
     clientId: `paseo-compat-${randomUUID()}`,
     clientType: "cli",
     appVersion: ctx.version,
-    localCredential: () => control.readLocalCredentialForTarget(ctx.home, instance.listen) ?? undefined,
+    localCredential: () => control.readLocalCredentialForTarget(ctx.home, listen) ?? undefined,
     reconnect: { enabled: false },
   });
   ctx.opened = client;
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (error) {
+    throw new Unverified(`the client of ${ctx.version} could not connect to ${listen}: ${oneLine(error?.message ?? error)}`);
+  }
   ctx.client = client;
   return client;
 }
@@ -561,31 +833,43 @@ async function connect(ctx) {
 /** The plugin's contracts, bundled from this checkout with the esbuild the Paseo under test compiles plugins with. */
 async function loadContracts(ctx) {
   const esbuild = await importFrom(ctx.prefix, "esbuild", "@getpaseo/server");
-  const built = await esbuild.build({
-    stdin: { contents: `export * from ${JSON.stringify(`./${PLUGIN.contracts}`)};`, resolveDir: ROOT, sourcefile: "paseo-compat-contracts.mjs", loader: "js" },
-    absWorkingDir: ROOT,
-    bundle: true,
-    format: "esm",
-    platform: "node",
-    target: "node22",
-    write: false,
-    logLevel: "silent",
-  });
-  const file = join(ctx.temp, "contracts.mjs");
-  writeFileSync(file, built.outputFiles[0].text);
-  return import(pathToFileURL(file).href);
+  try {
+    const built = await esbuild.build({
+      stdin: { contents: `export * from ${JSON.stringify(`./${PLUGIN.contracts}`)};`, resolveDir: ROOT, sourcefile: "paseo-compat-contracts.mjs", loader: "js" },
+      absWorkingDir: ROOT,
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      write: false,
+      logLevel: "silent",
+    });
+    const file = join(ctx.temp, "contracts.mjs");
+    writeFileSync(file, built.outputFiles[0].text);
+    return await import(pathToFileURL(file).href);
+  } catch (error) {
+    throw new Unverified(`${PLUGIN.contracts} could not be bundled for the check: ${oneLine(error?.message ?? error)}`);
+  }
 }
 
 function contractOf(ctx, name) {
   const contract = ctx.contracts[name];
-  if (!contract?.name || !contract.input || !contract.output) throw new StepFailure(`${PLUGIN.contracts} has no RPC contract ${name}`);
+  if (!contract?.name || !contract.input || !contract.output) throw new Unverified(`${PLUGIN.contracts} has no RPC contract ${name}`);
   return contract;
+}
+
+function inputOf(contract, input) {
+  try {
+    return contract.input.parse(input);
+  } catch (error) {
+    throw new Unverified(`PLUGIN's input for ${contract.name} does not fit its contract: ${oneLine(error?.message ?? error)}`);
+  }
 }
 
 /** Calls a contract through the daemon and parses the answer with the contract's own output schema. */
 async function call(ctx, name, input) {
   const contract = contractOf(ctx, name);
-  const answer = await ctx.client.invokePluginRpc(ctx.manifest.id, contract.name, contract.input.parse(input));
+  const answer = await ctx.client.invokePluginRpc(ctx.manifest.id, contract.name, inputOf(contract, input));
   const parsed = contract.output.safeParse(answer);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -608,7 +892,7 @@ async function rpc(ctx) {
     }
     let refusal;
     try {
-      await ctx.client.invokePluginRpc(ctx.manifest.id, contract.name, contract.input.parse(entry.input));
+      await ctx.client.invokePluginRpc(ctx.manifest.id, contract.name, inputOf(contract, entry.input));
     } catch (error) {
       refusal = String(error?.message ?? error);
     }
@@ -622,29 +906,15 @@ async function rpc(ctx) {
 /** Step 5: one agent of the built-in mock provider, its session opened through the plugin's hook, and one turn. */
 async function hooks(ctx) {
   const id = ctx.manifest.id;
-  let models;
-  try {
-    models = await paseoJson(ctx, ["provider", "models", "mock"]);
-  } catch (error) {
-    throw new StepFailure(`the mock provider of a development daemon is not available: ${error.message}`);
+  if (!hasProvider(await paseoJson(ctx, ["provider", "ls"]), "mock")) {
+    throw new Unverified("the daemon has no mock provider (a development daemon's, PASEO_NODE_ENV=development): no agent session can be opened without a key");
   }
-  // The catalog says which of its models is for smoke checks; the first one stands in when none says so.
-  const model = models.find((entry) => /smoke/i.test(entry.description ?? "")) ?? models[0];
-  if (!model?.id) throw new StepFailure("the mock provider lists no model");
+  const model = smokeModel(await paseoJson(ctx, ["provider", "models", "mock"]));
   mkdirSync(ctx.work, { recursive: true });
-  const created = await ctx.proc.paseo(
-    ["run", "--home", ctx.home, "--json", "--provider", `mock/${model.id}`, "--cwd", ctx.work, "--title", "paseo-compat", "--wait-timeout", "90s", PROMPT],
-    { timeoutMs: 180_000 },
+  const agent = runOutcome(
+    await ctx.proc.paseo(["run", "--home", ctx.home, "--json", "--provider", `mock/${model}`, "--cwd", ctx.work, "--title", "paseo-compat", "--wait-timeout", "90s", PROMPT], { timeoutMs: 180_000 }),
+    id,
   );
-  // A session_open hook whose answer the daemon rejects fails the creation here: "Plugin … before agent.session_open failed".
-  if (created.code !== 0) throw new StepFailure(`the agent was not created: ${failureOf(created)}`, excerptOf(created));
-  let agent;
-  try {
-    agent = jsonFrom(created.stdout);
-  } catch {
-    agent = undefined;
-  }
-  if (typeof agent?.agentId !== "string") throw new StepFailure(`paseo run named no agent: ${oneLine(created.stdout || created.stderr)}`, excerptOf(created));
   let turn = agent.status;
   if (turn === "permission") {
     await paseoJson(ctx, ["permit", "allow", agent.agentId, "--all"]);
@@ -655,22 +925,20 @@ async function hooks(ctx) {
     await paseoJson(ctx, ["agent", "stop", agent.agentId]);
     turn = "interrupted after 90 s";
   } else if (turn !== "completed") {
-    throw new StepFailure(`the agent's turn ended with status ${turn}`);
+    throw new Unverified(`the mock agent's turn ended with status ${turn}`);
   }
 
   await sleep(EVENT_GRACE_MS);
-  const listed = (await paseoJson(ctx, ["ls", "--all", "--global"])).some((entry) => entry.id === agent.agentId);
-  if (!listed) throw new StepFailure(`agent ${agent.agentId} is not listed after its turn`);
-  const logs = await paseoJson(ctx, ["plugin", "logs", id]);
-  const hookFailure = logs.find((entry) => /^Lifecycle hook \S+ failed/.test(entry.message));
-  if (hookFailure) throw new StepFailure(`the daemon logged: ${oneLine(hookFailure.message)}`);
-  const plugin = (await paseoJson(ctx, ["plugin", "ls"])).find((entry) => entry.id === id);
+  if (!listsAgent(await paseoJson(ctx, ["ls", "--all", "--global"]), agent.agentId)) throw new Unverified(`agent ${agent.agentId} is not listed after its turn`);
+  const failure = lifecycleFailure(await paseoJson(ctx, ["plugin", "logs", id]));
+  if (failure) throw new StepFailure(`the daemon logged: ${oneLine(failure)}`);
+  const plugin = pluginEntry(await paseoJson(ctx, ["plugin", "ls"]), id);
   if (plugin?.status !== "running") throw new StepFailure(`${id} is ${plugin?.status ?? "gone"} after the turn${plugin?.error ? `: ${oneLine(plugin.error)}` : ""}`);
-  if (PLUGIN.diagnostics) {
+  if (PLUGIN.diagnostics && ctx.client) {
     const problems = PLUGIN.diagnostics.problems(await call(ctx, PLUGIN.diagnostics.contract, PLUGIN.diagnostics.input));
     if (problems.length) throw new StepFailure(`diagnostics after the turn: ${problems.join("; ")}`);
   }
-  return `mock/${model.id} agent ${agent.agentId.slice(0, 7)}: session opened, turn ${turn}, agent listed${PLUGIN.diagnostics ? `; diagnostics: ${PLUGIN.diagnostics.summary}` : ""}`;
+  return `mock/${model} agent ${agent.agentId.slice(0, 7)}: session opened, turn ${turn}, agent listed${PLUGIN.diagnostics && ctx.client ? `; diagnostics: ${PLUGIN.diagnostics.summary}` : ""}`;
 }
 
 function processAlive(pid) {
@@ -682,70 +950,80 @@ function processAlive(pid) {
   }
 }
 
-/** Step 6: the daemon stopped, the SDK of the checkout restored, the temporary directory removed; whatever happened before. */
-async function cleanup(ctx) {
-  state.cleaning = true;
-  const done = [];
-  const problems = [];
-  try {
-    await ctx.opened?.close();
-  } catch {
-    // The daemon is stopped below either way.
+/** The daemon of the run stopped: by `paseo daemon stop`, and when that cannot confirm it, by killing its process group. */
+async function stopDaemon(ctx) {
+  let stop = { confirmed: false, said: "" };
+  if (existsSync(join(ctx.home, "config.json")) && existsSync(join(ctx.prefix, "node_modules", ".bin", "paseo"))) {
+    stop = stopOutcome(await ctx.proc.paseo(["daemon", "stop", "--home", ctx.home, "--json", "--force", "--timeout", "20", "--kill-timeout", "5"], { timeoutMs: 60_000, always: true }));
+    if (stop.confirmed) return stop.said;
   }
-  const cli = join(ctx.prefix, "node_modules", ".bin", "paseo");
-  let stopConfirmed = false;
-  let stopProblem;
-  if (existsSync(join(ctx.home, "config.json")) && existsSync(cli)) {
-    const stopped = await ctx.proc.paseo(["daemon", "stop", "--home", ctx.home, "--json", "--force", "--timeout", "20", "--kill-timeout", "5"], { timeoutMs: 60_000, always: true });
-    if (stopped.code !== 0) stopProblem = `paseo daemon stop: ${failureOf(stopped)}`;
-    else {
-      stopConfirmed = true;
-      done.push(jsonFrom(stopped.stdout).action === "stopped" ? "daemon stopped" : "no daemon was running");
-    }
-  }
-  // When `stop` did not confirm the exit: the supervisor leads a process group of its own (it was started detached),
-  // which holds its worker and the plugin's process. A confirmed stop is left alone, so a reused pid is never hit.
+  // The supervisor leads a process group of its own (it was started detached), which holds its worker and the
+  // plugin's process. Only a stop that was not confirmed gets here, so a pid reused since is never hit.
   let pid = ctx.daemonPid;
   try {
     pid ??= JSON.parse(readFileSync(join(ctx.home, "paseo.pid"), "utf8")).pid;
   } catch {
     // No lock: no daemon was started.
   }
-  if (!stopConfirmed && Number.isInteger(pid) && pid > 1) {
-    if (processAlive(pid)) {
-      for (const target of [-pid, pid]) {
-        try {
-          process.kill(target, "SIGKILL");
-        } catch {
-          // Gone already, or not a group.
-        }
+  if (!Number.isInteger(pid) || pid <= 1) {
+    if (stop.said) throw new Error(stop.said);
+    return undefined;
+  }
+  if (processAlive(pid)) {
+    for (const target of [-pid, pid]) {
+      try {
+        process.kill(target, "SIGKILL");
+      } catch {
+        // Gone already, or not a group.
       }
-      await sleep(1_000, { always: true });
     }
-    if (processAlive(pid)) problems.push(`${stopProblem ? `${stopProblem}; ` : ""}daemon pid ${pid} is still running`);
-    else done.push(`daemon pid ${pid} not running${stopProblem ? ` (${stopProblem})` : ""}`);
-  } else if (stopProblem) problems.push(stopProblem);
-  if (ctx.sdkReplaced) {
-    const unlocked = ctx.sdkReplaced.filter(({ locked }) => !locked);
-    const restore = unlocked.length
-      ? { code: 1, stdout: "", stderr: `package-lock.json has no ${unlocked.map(({ name }) => name).join(", ")}` }
-      : await ctx.proc.npm(["install", "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error", ...ctx.sdkReplaced.map(({ name, locked }) => `${name}@${locked}`)], { timeoutMs: 300_000, echo: false, always: true });
-    const stray = ctx.sdkReplaced.filter(({ name, locked }) => installedVersion(ROOT, name) !== locked);
-    if (restore.code !== 0 || stray.length) problems.push(`node_modules keeps the SDK of ${ctx.version}, run npm ci: ${failureOf(restore)}`);
-    else done.push("pinned SDK restored");
+    await sleep(1_000, { always: true });
   }
-  try {
+  if (processAlive(pid)) throw new Error(`${stop.said ? `${stop.said}; ` : ""}daemon pid ${pid} is still running`);
+  return `daemon pid ${pid} not running${stop.said ? ` (${stop.said})` : ""}`;
+}
+
+/** The SDK of the checkout put back to what its lock file installs, after step 2. */
+async function restoreSdk(ctx) {
+  if (!ctx.sdkReplaced) return undefined;
+  const unlocked = ctx.sdkReplaced.filter(({ locked }) => !locked);
+  if (unlocked.length) throw new Error(`package-lock.json has no ${unlocked.map(({ name }) => name).join(", ")}: run npm ci`);
+  const restore = await ctx.proc.npm(["install", "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error", ...ctx.sdkReplaced.map(({ name, locked }) => `${name}@${locked}`)], {
+    timeoutMs: 300_000,
+    echo: false,
+    always: true,
+  });
+  const stray = ctx.sdkReplaced.filter(({ name, locked }) => installedVersion(ROOT, name) !== locked);
+  if (restore.code !== 0 || stray.length) throw new Error(`node_modules keeps the SDK of ${ctx.version}, run npm ci: ${failureOf(restore)}`);
+  return "pinned SDK restored";
+}
+
+/** Step 6: the client closed, the daemon stopped, the SDK of the checkout restored, the temporary directory removed. Each part runs whatever the others did. */
+async function cleanup(ctx) {
+  state.cleaning = true;
+  const done = [];
+  const problems = [];
+  const part = async (name, body) => {
+    try {
+      const said = await body();
+      if (said) done.push(said);
+    } catch (error) {
+      problems.push(`${name}: ${oneLine(error?.message ?? error)}`);
+    }
+  };
+  await part("client", () => ctx.opened?.close());
+  await part("daemon", () => stopDaemon(ctx));
+  await part("sdk", () => restoreSdk(ctx));
+  await part("temporary files", () => {
     rmSync(ctx.temp, { recursive: true, force: true, maxRetries: 3 });
-    if (existsSync(ctx.temp)) problems.push(`${ctx.temp} is still there`);
-    else done.push("temporary files removed");
-  } catch (error) {
-    problems.push(`${ctx.temp} could not be removed: ${error.message}`);
-  }
-  if (problems.length) throw new StepFailure(problems.join("; "));
+    if (existsSync(ctx.temp)) throw new Error(`${ctx.temp} is still there`);
+    return "temporary files removed";
+  });
+  if (problems.length) throw new Unverified([...problems, ...done].join("; "));
   return done.join(", ");
 }
 
-/** Prints and records one step. A step that throws is a failure, or a skip; the run goes on to what does not need it. */
+/** Prints and records one step. A step that throws is a failure, an unverified step, or a skip. */
 async function step(ctx, number, body) {
   const record = { step: number, name: STEP_NAMES[number], status: "pass", detail: "" };
   try {
@@ -753,14 +1031,14 @@ async function step(ctx, number, body) {
   } catch (error) {
     if (error instanceof Skip) record.status = "skip";
     else {
-      record.status = "fail";
+      record.status = error instanceof Unverified ? "unverified" : "fail";
       if (error?.excerpt) record.excerpt = error.excerpt;
     }
     record.detail = state.interrupted && !(error instanceof Skip) ? `interrupted by ${state.interrupted}: ${oneLine(error?.message ?? error)}` : oneLine(error?.message ?? String(error), 1000);
   }
   ctx.steps.push(record);
   console.log(formatStep(record));
-  if (record.status === "fail" && record.excerpt && !state.verbose) console.log(record.excerpt.replace(/^/gm, "    | "));
+  if (record.status !== "pass" && record.status !== "skip" && record.excerpt && !state.verbose) console.log(record.excerpt.replace(/^/gm, "    | "));
   return record.status === "pass";
 }
 
@@ -768,6 +1046,16 @@ function notRun(ctx, number, why) {
   const record = { step: number, name: STEP_NAMES[number], status: "skip", detail: `not run: ${why}` };
   ctx.steps.push(record);
   console.log(formatStep(record));
+}
+
+/** The outcome of a run from its steps: a failure is the plugin's, an unverified step makes no verdict, a refused claim is a skip. */
+export function outcomeOf(steps) {
+  const failed = steps.find((entry) => entry.status === "fail");
+  const unverified = steps.find((entry) => entry.status === "unverified");
+  if (failed) return { status: "fail", failed };
+  if (unverified) return { status: "unverified", failed: unverified };
+  if (steps[0]?.status === "skip") return { status: "skip", failed: steps[0] };
+  return { status: "pass", failed: null };
 }
 
 /** One compatibility run: steps 1, (2,) 3, 4, 5 and 6. Resolves with the result that `--result` writes. */
@@ -783,16 +1071,20 @@ async function compat(version, { withSdk }) {
     work: join(temp, "work"),
     steps: [],
   };
+  mkdirSync(ctx.userHome, { recursive: true, mode: 0o700 });
   ctx.proc = processes(ctx);
   const started = Date.now();
   console.log(`paseo-compat: ${ctx.manifest.id} against Paseo ${version} (Node.js ${process.version}, ${process.platform} ${process.arch}), in ${temp}`);
   try {
+    if (inside(temp, join(homedir(), ".paseo"))) throw new Error(`refusing ${temp}: it is inside the owner's Paseo home`);
     if (await step(ctx, 1, () => claim(ctx, version, ctx.prefix))) {
       if (withSdk) await step(ctx, 2, () => sdk(ctx));
       if (await step(ctx, 3, () => daemon(ctx))) {
-        await step(ctx, 4, () => rpc(ctx));
-        if (ctx.client && ctx.contracts) await step(ctx, 5, () => hooks(ctx));
-        else notRun(ctx, 5, ctx.contracts ? "the client did not connect" : `${PLUGIN.contracts} did not load`);
+        if (PLUGIN.contracts) await step(ctx, 4, () => rpc(ctx));
+        else notRun(ctx, 4, "the plugin has no RPC contracts (PLUGIN.contracts)");
+        if (!PLUGIN.hooks) notRun(ctx, 5, "the plugin registers no hook (PLUGIN.hooks)");
+        else if (PLUGIN.contracts && PLUGIN.diagnostics && !ctx.client) notRun(ctx, 5, "its diagnostics need the client of step 4");
+        else await step(ctx, 5, () => hooks(ctx));
       } else {
         notRun(ctx, 4, "the daemon or the plugin did not start");
         notRun(ctx, 5, "the daemon or the plugin did not start");
@@ -801,22 +1093,21 @@ async function compat(version, { withSdk }) {
   } finally {
     await step(ctx, 6, () => cleanup(ctx));
   }
-  const skipped = ctx.steps[0]?.status === "skip";
-  const failed = ctx.steps.find((entry) => entry.status === "fail");
-  const status = failed ? "fail" : skipped ? "skip" : "pass";
+  const { status, failed } = outcomeOf(ctx.steps);
   const seconds = Math.round((Date.now() - started) / 1000);
   const summary =
     state.interrupted ? `INTERRUPTED ${ctx.manifest.id} on Paseo ${version} by ${state.interrupted}${failed ? ` in step ${failed.step} (${failed.name})` : ""}; cleaned up` :
     status === "pass" ? `PASS ${ctx.manifest.id} on Paseo ${version} (${seconds} s)` :
     status === "skip" ? `SKIP ${ctx.manifest.id} on Paseo ${version}: the plugin does not claim this release` :
-    `FAIL ${ctx.manifest.id} on Paseo ${version} at step ${failed.step} (${failed.name}) (${seconds} s)`;
+    status === "fail" ? `FAIL ${ctx.manifest.id} on Paseo ${version} at step ${failed.step} (${failed.name}) (${seconds} s)` :
+    `UNVERIFIED ${ctx.manifest.id} on Paseo ${version}: the check itself failed at step ${failed.step} (${failed.name}), so there is no verdict on the plugin (${seconds} s)`;
   console.log(summary);
   return {
     plugin: ctx.manifest.id,
     version,
     runner: process.env.PASEO_COMPAT_RUNNER || `${process.platform}-${process.arch}`,
     status,
-    failed: failed ? { step: failed.step, name: failed.name, detail: failed.detail } : skipped ? { step: 1, name: "range", detail: ctx.steps[0].detail } : null,
+    failed: failed ? { step: failed.step, name: failed.name, detail: failed.detail } : null,
     excerpt: failed?.excerpt,
     steps: ctx.steps.map(({ excerpt, ...rest }) => rest),
     node: process.version,
@@ -845,22 +1136,27 @@ function runnersOf(env) {
   return runners;
 }
 
-/** The resolve job: the versions to test, those the plugin does not claim, and the cache keys to look up. */
+/** The resolve job: the versions to test, those the plugin does not claim, npm's dist-tag heads, and the cache keys to look up. */
 async function resolveCommand(env) {
-  const ctx = { manifest: JSON.parse(readFileSync(join(ROOT, "paseo-plugin.json"), "utf8")) };
-  ctx.proc = processes(ctx);
-  let distTags;
-  if (!parseVersions(env.VERSIONS).length) {
-    const view = await ctx.proc.npm(["view", "@getpaseo/cli", "dist-tags", "--json"], { timeoutMs: 60_000 });
-    if (view.code !== 0) throw new Error(`npm view @getpaseo/cli dist-tags: ${failureOf(view)}`);
-    distTags = JSON.parse(view.stdout);
-  }
-  const { fromTags, versions } = candidates({ distTags, input: env.VERSIONS });
   const temp = mkdtempSync(join(tmpdir(), "paseo-compat-resolve-"));
+  const ctx = { manifest: JSON.parse(readFileSync(join(ROOT, "paseo-plugin.json"), "utf8")), userHome: join(temp, "user") };
+  mkdirSync(ctx.userHome, { recursive: true, mode: 0o700 });
+  ctx.proc = processes(ctx);
   const claimed = [];
   const skipped = [];
+  let fromTags;
+  let heads = [];
   try {
-    for (const [index, { version, tags }] of versions.entries()) {
+    let distTags;
+    if (!parseVersions(env.VERSIONS).length) {
+      const view = await ctx.proc.npm(["view", "@getpaseo/cli", "dist-tags", "--json"], { timeoutMs: 60_000 });
+      if (view.code !== 0) throw new Error(`npm view @getpaseo/cli dist-tags: ${failureOf(view)}`);
+      distTags = JSON.parse(view.stdout);
+    }
+    const found = candidates({ distTags, input: env.VERSIONS });
+    fromTags = found.fromTags;
+    if (fromTags) heads = found.versions.map(({ version }) => version);
+    for (const [index, { version, tags }] of found.versions.entries()) {
       const from = tags.length ? ` (${tags.join(", ")})` : "";
       try {
         console.log(`${version}${from}: ${await claim(ctx, version, join(temp, String(index)))}`);
@@ -877,7 +1173,7 @@ async function resolveCommand(env) {
   const sha = env.GITHUB_SHA;
   const keys = fromTags && sha ? claimed.map((version) => cacheKey(version, sha)) : [];
   if (keys.length > LOOKUPS) throw new Error(`the workflow looks up ${LOOKUPS} keys, not ${keys.length}`);
-  setOutputs({ versions: claimed, skipped, runners: runnersOf(env), ...Object.fromEntries([...Array(LOOKUPS).keys()].map((index) => [`key${index}`, keys[index] ?? ""])) });
+  setOutputs({ versions: claimed, skipped, heads, runners: runnersOf(env), ...Object.fromEntries([...Array(LOOKUPS).keys()].map((index) => [`key${index}`, keys[index] ?? ""])) });
   summarize(
     [
       `### Paseo versions${fromTags ? ` on npm (${DIST_TAGS.join(", ")} of @getpaseo/cli)` : " asked for"}`,
@@ -885,7 +1181,7 @@ async function resolveCommand(env) {
       "| Version | Claimed by paseo-plugin.json |",
       "| --- | --- |",
       ...claimed.map((version) => `| ${version} | yes |`),
-      ...skipped.map(({ version, reason }) => `| ${version} | no, skipped: ${cell(reason)} |`),
+      ...skipped.map(({ version, reason }) => `| ${version} | no, skipped: ${markdownText(reason)} |`),
     ].join("\n"),
   );
 }
@@ -899,9 +1195,11 @@ function selectCommand(env) {
   if (cached.length) summarize(cached.map((version) => `- ${version} passed for this commit already.`).join("\n"));
 }
 
-/** `gh` with the job's token and repository (GH_TOKEN, GH_REPO), which `childEnv` keeps. */
+/** `gh` with the job's token and repository; it talks to GitHub only, so it keeps the real home directory for a local login. */
 function gh(args) {
-  return run("gh", args, { env: childEnv(process.env), timeoutMs: 60_000, echo: false });
+  const set = { HOME: homedir() };
+  for (const key of ["GH_TOKEN", "GH_REPO", "GH_HOST"]) if (process.env[key]) set[key] = process.env[key];
+  return run("gh", args, { env: childEnv(process.env, set), timeoutMs: 60_000, echo: false });
 }
 
 async function ghOrThrow(args) {
@@ -929,19 +1227,23 @@ async function reportCommand(directory, env) {
   if (!directory) throw new Error("report needs the directory of the downloaded results");
   const dryRun = env.DRY_RUN === "true";
   const manifest = JSON.parse(readFileSync(join(ROOT, "paseo-plugin.json"), "utf8"));
-  const sha = env.GITHUB_SHA;
-  const run = { url: env.RUN_URL ?? "(no run)", sha: sha ?? "0000000" };
+  const run = { url: env.RUN_URL ?? "(no run)", sha: env.GITHUB_SHA ?? "0000000" };
   const versions = JSON.parse(env.VERSIONS ?? "[]");
-  const openIssues = env.ISSUES_FILE
-    ? JSON.parse(readFileSync(env.ISSUES_FILE, "utf8"))
-    : JSON.parse(await ghOrThrow(["issue", "list", "--label", LABEL, "--state", "open", "--limit", "200", "--json", "number,title,body"]));
-  const plan = planReport({ plugin: manifest.id, versions, runners: runnersOf(env), results: readResults(directory), openIssues, run });
+  const heads = JSON.parse(env.HEADS || "[]");
+  const listIssues = async (kind) =>
+    JSON.parse(await ghOrThrow(["issue", "list", "--label", LABELS[kind], "--state", "open", "--limit", "200", "--json", "number,title,body"])).map((issue) => ({ ...issue, kind }));
+  const openIssues = env.ISSUES_FILE ? JSON.parse(readFileSync(env.ISSUES_FILE, "utf8")) : [...(await listIssues("plugin")), ...(await listIssues("harness"))];
+  const plan = planReport({ plugin: manifest.id, versions, runners: runnersOf(env), results: readResults(directory), openIssues, run, heads });
   for (const { version, status, legs } of plan.verdicts) console.log(`${version}: ${status} (${legs.map((leg) => `${leg.runner} ${leg.status}`).join(", ")})`);
 
   const done = [];
-  if (plan.actions.some((action) => action.kind === "create") && !dryRun) {
-    const labels = JSON.parse(await ghOrThrow(["label", "list", "--limit", "500", "--json", "name"]));
-    if (!labels.some((label) => label.name === LABEL)) await ghOrThrow(["label", "create", LABEL, "--color", "B60205", "--description", "A Paseo release this plugin failed against (Paseo compatibility workflow)"]);
+  if (!dryRun) {
+    const needed = [...new Set(plan.actions.filter((action) => action.kind === "create").map((action) => action.label))];
+    if (needed.length) {
+      const labels = JSON.parse(await ghOrThrow(["label", "list", "--limit", "500", "--json", "name"]));
+      const about = { [LABELS.plugin]: "A Paseo release this plugin fails with (Paseo compatibility workflow)", [LABELS.harness]: "A Paseo release the compatibility check could not judge (Paseo compatibility workflow)" };
+      for (const label of needed) if (!labels.some((entry) => entry.name === label)) await ghOrThrow(["label", "create", label, "--color", label === LABELS.plugin ? "B60205" : "FBCA04", "--description", about[label]]);
+    }
   }
   const temp = mkdtempSync(join(tmpdir(), "paseo-compat-report-"));
   try {
@@ -951,13 +1253,14 @@ async function reportCommand(directory, env) {
       return file;
     };
     for (const action of plan.actions) {
+      const name = `${action.issueKind}-${action.version}`;
       const commands = [];
-      if (action.kind === "create") commands.push(["issue", "create", "--title", action.title, "--label", LABEL, "--body-file", bodyFile(`${action.version}.md`, action.body)]);
+      if (action.kind === "create") commands.push(["issue", "create", "--title", action.title, "--label", action.label, "--body-file", bodyFile(`${name}.md`, action.body)]);
       if (action.kind === "update") {
-        commands.push(["issue", "edit", String(action.number), "--body-file", bodyFile(`${action.version}.md`, action.body)]);
-        if (action.comment) commands.push(["issue", "comment", String(action.number), "--body-file", bodyFile(`${action.version}-comment.md`, action.comment)]);
+        commands.push(["issue", "edit", String(action.number), "--body-file", bodyFile(`${name}.md`, action.body)]);
+        if (action.comment) commands.push(["issue", "comment", String(action.number), "--body-file", bodyFile(`${name}-comment.md`, action.comment)]);
       }
-      if (action.kind === "close") commands.push(["issue", "close", String(action.number), "--reason", "completed", "--comment", action.comment]);
+      if (action.kind === "close") commands.push(["issue", "close", String(action.number), "--reason", action.reason, "--comment", action.comment]);
       for (const args of commands) {
         if (dryRun) console.log(`dry run: gh ${args.map((arg) => (arg.startsWith(temp) ? `<${arg.slice(temp.length + 1)}>` : JSON.stringify(arg))).join(" ")}`);
         else {
@@ -966,7 +1269,7 @@ async function reportCommand(directory, env) {
         }
       }
       if (dryRun && action.body) console.log(action.body.replace(/^/gm, "    | "));
-      done.push(`${action.kind} ${action.number ? `#${action.number} ` : ""}(Paseo ${action.version})${dryRun ? ", dry run" : ""}`);
+      done.push(`${action.kind} ${action.number ? `#${action.number} ` : ""}(${action.issueKind}, Paseo ${action.version})${dryRun ? ", dry run" : ""}`);
     }
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -991,6 +1294,9 @@ const USAGE = `Usage:
   node scripts/paseo-compat.mjs <version> [--with-sdk] [--verbose] [--result <file>]
   node scripts/paseo-compat.mjs resolve | select | report <directory>     (the Paseo compatibility workflow)`;
 
+/** The exit code of a run: 0 for a pass or a skip, 1 for a failure of the plugin, 3 when the check reached no verdict. */
+export const EXIT = { pass: 0, skip: 0, fail: 1, unverified: 3, interrupted: 130 };
+
 async function main(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -1010,8 +1316,9 @@ async function main(argv) {
     return 2;
   }
   state.verbose = values.verbose === true;
-  // The first signal stops what runs and goes on to the cleanup, which is bounded by its own timeouts. A signal during
-  // the cleanup cannot cut it short: a daemon left running is what this script must never leave behind.
+  // The first signal stops what runs (each command in its own process group, with what it started) and goes on to the
+  // cleanup, which is bounded by its own timeouts. A signal during the cleanup cannot cut it short: a daemon left
+  // running is what this script must never leave behind.
   const interrupt = (signal) => {
     if (state.finished) return;
     if (state.interrupted || state.cleaning) {
@@ -1020,10 +1327,9 @@ async function main(argv) {
     }
     state.interrupted = signal;
     console.log(`\n${signal}: stopping what runs, then cleaning up`);
-    for (const child of state.children) child.kill("SIGTERM");
+    stopChildren("SIGTERM");
   };
-  process.on("SIGINT", interrupt);
-  process.on("SIGTERM", interrupt);
+  for (const signal of SIGNALS) process.on(signal, interrupt);
   const result = await compat(command, { withSdk: values["with-sdk"] === true });
   state.finished = true;
   if (values.result) {
@@ -1034,10 +1340,11 @@ async function main(argv) {
   if (process.env.GITHUB_ACTIONS === "true") {
     summarize(["```", ...result.steps.map(formatStep), result.summary, "```"].join("\n"));
     // A workflow command's message is one line, with % escaped.
-    if (result.status === "fail") console.log(`::error title=Paseo ${result.version} on ${result.runner}::step ${result.failed.step} (${result.failed.name}): ${result.failed.detail.replace(/%/g, "%25")}`);
+    const annotation = { fail: "error", unverified: "warning" }[result.status];
+    if (annotation) console.log(`::${annotation} title=Paseo ${result.version} on ${result.runner}::${result.status} at step ${result.failed.step} (${result.failed.name}): ${result.failed.detail.replace(/%/g, "%25")}`);
   }
-  if (state.interrupted) return 130;
-  return result.status === "fail" ? 1 : 0;
+  if (state.interrupted) return EXIT.interrupted;
+  return EXIT[result.status];
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "paseo",
+    "daemon",
+    "config",
+    "set",
+    "daemon.listen",
+    "127.0.0.1:45157",
+    "--string",
+    "--home",
+    "/tmp/home-broken-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 0,
+  "stdout": "{\n  \"action\": \"saved\",\n  \"applied\": false,\n  \"message\": \"Saved; not applied to a running daemon\",\n  \"nextCommand\": \"paseo daemon start --home \\\"/tmp/home-broken-0.14.0-beta.1\\\"\"\n}\n",
+  "stderr": ""
+}

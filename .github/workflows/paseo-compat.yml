@@ -3,8 +3,9 @@ name: Paseo compatibility
 # Tests every new Paseo release, beta and stable, against the plugin as it is on this commit, with
 # scripts/paseo-compat.mjs: the SDK of the release (typecheck and tests), then an isolated daemon of it with the plugin
 # installed, its RPCs, and its hooks through an agent of the built-in mock provider. No provider key and no secret is
-# used. A version that fails gets one issue, labelled paseo-compat, which the first run that passes closes. The plugin
-# claims an open range of Paseo releases, so a release needs no change of it; see CONTRIBUTING.md, "Paseo compatibility".
+# used. A version the plugin fails with gets one issue, labelled paseo-compat, which the first run that passes closes;
+# a version the check itself could not judge gets one labelled paseo-compat-harness instead. The plugin claims an open
+# range of Paseo releases, so a release needs no change of it; see CONTRIBUTING.md, "Paseo compatibility".
 
 on:
   schedule:
@@ -39,6 +40,8 @@ jobs:
     outputs:
       versions: ${{ steps.select.outputs.versions }}
       runners: ${{ steps.resolve.outputs.runners }}
+      # npm's latest and beta when the versions came from them, for the report to close the issues of older pre-releases.
+      heads: ${{ steps.resolve.outputs.heads }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,7 +107,8 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
       # Steps 1 to 6: the claim, the SDK of the release, the daemon, the RPCs, the hooks, and the cleanup. The job
-      # fails with the run, and the result goes to the report either way.
+      # fails when the plugin fails (exit 1) and when the check reaches no verdict (exit 3); the result goes to the
+      # report either way.
       - name: Test the plugin against Paseo ${{ matrix.version }}
         env:
           VERSION: ${{ matrix.version }}
@@ -116,8 +120,10 @@ jobs:
         with:
           name: paseo-compat-${{ matrix.version }}-${{ matrix.os }}
           path: ${{ runner.temp }}/paseo-compat/result.json
-          # A runner without a result is reported as failing.
+          # A runner without a result is reported as one that reached no verdict.
           if-no-files-found: warn
+          # A job run again within the same run replaces its result, and the report reads the new one.
+          overwrite: true
           retention-days: 7
 
   report:
@@ -152,6 +158,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSIONS: ${{ needs.resolve.outputs.versions }}
+          HEADS: ${{ needs.resolve.outputs.heads }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # The issues follow the default branch, where every scheduled run starts. A run started by hand from another
           # branch prints what it would do and changes no issue.

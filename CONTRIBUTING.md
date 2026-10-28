@@ -70,11 +70,12 @@ flowchart LR
   C -- yes --> K{"passed for<br/>this commit?"}
   K -- yes --> N["not tested again"]
   K -- no --> R["scripts/paseo-compat.mjs<br/>on macos-15 and ubuntu-24.04"]
-  R -- fails --> I["issue opened or updated"]
-  R -- passes on both --> P["issue closed,<br/>pass recorded"]
+  R -- fails --> I["paseo-compat issue<br/>opened or updated"]
+  R -- reaches no verdict --> H["paseo-compat-harness issue<br/>opened or updated"]
+  R -- passes on both --> P["issues closed,<br/>pass recorded"]
 ```
 
-One run of `scripts/paseo-compat.mjs <version>` prints a line per step:
+One run of `scripts/paseo-compat.mjs <version>` prints a line per step and ends in pass, skip, fail (exit 1) or unverified (exit 3):
 
 | Step | What it checks |
 | --- | --- |
@@ -83,16 +84,20 @@ One run of `scripts/paseo-compat.mjs <version>` prints a line per step:
 | 3 daemon | The release's CLI, in a temporary prefix, starts a daemon in a temporary home on a free port, never 6767. The plugin, installed from the checkout, is `running` and logs "Plugin ready". |
 | 4 rpc | Through that daemon, with the release's client: the diagnostics answer parses with the plugin's own schema, and reading an unknown request gets the plugin's refusal. |
 | 5 hooks | An agent of the built-in `mock` provider opens its session through the plugin's `agent.session_open` hook and runs one turn; the diagnostics then show no hook failure. |
-| 6 cleanup | The daemon stops and the temporary directory goes, whatever happened before, Ctrl-C included. |
+| 6 cleanup | The daemon stops, the pinned SDK is back and the temporary directory goes, after a failure, a timeout, Ctrl-C or a hangup too. Each command runs in a process group of its own, which a timeout kills whole. Only killing the script itself (`kill -9`) leaves them behind. |
 
 ```sh
 npm run test:paseo -- 0.14.0-beta.1              # steps 1 and 3 to 6, against that release
 npm run test:paseo -- 0.14.0-beta.1 --with-sdk   # with step 2
 ```
 
-It is safe to run inside a Paseo agent: what it starts loses the session's variables (`PASEO_*`, `SECURE_INPUT_*`) and talks only to the daemon it started. The mock provider needs no key, but it calls no tools, so the four tools stay unexercised; for a beta, add a round of [live validation](#live-validation) with a real agent. `mock` exists only in a development daemon (`PASEO_NODE_ENV=development`, which the script sets) and can change in any release: a step 5 that fails on the mock provider itself is the script's to fix, not the plugin's.
+It is safe to run inside a Paseo agent: what it starts gets an allowlist of the environment (no provider key or configuration directory, no `PASEO_*`) and a home directory of its own, and talks only to the daemon it started. The mock provider needs no key, but it calls no tools, so the four tools stay unexercised; for a beta, add a round of [live validation](#live-validation) with a real agent.
 
-A failing version gets one issue, `Paseo <version> compatibility`, labelled `paseo-compat`, with each runner's failed step and the run. Each run that still fails updates it, and the first that passes on every runner closes it; a run started by hand from another branch only prints what it would do. To fix a failure, make the plugin work on both the oldest claimed release and the new one. If the new release dropped something the plugin cannot do without, raise the minimum in `paseo-plugin.json` and the pinned SDK together. Neither adds an upper bound.
+A version the plugin fails with gets one issue, `Paseo <version> compatibility`, labelled `paseo-compat`, with each runner's failed step and the run. To fix it, make the plugin work on both the oldest claimed release and the new one; if the new release dropped something the plugin cannot do without, raise the minimum in `paseo-plugin.json` and the pinned SDK together. Neither adds an upper bound. A run that ends unverified is the check's to fix, not the plugin's: the mock provider (it exists only in a development daemon, `PASEO_NODE_ENV=development`, and can change in any release), a CLI option or output, a module of the release, or the network was not what `scripts/paseo-compat.mjs` expects. Such a version gets an issue labelled `paseo-compat-harness` instead, and no pass is recorded for it.
+
+Each run that still ends so updates its issue, and the first that ends otherwise closes it: a pass on every runner for `paseo-compat`, a verdict on every runner for `paseo-compat-harness`. A pre-release that npm's `latest` and `beta` have both moved past is tested no more, so a scheduled run closes its issues. A run started by hand from another branch only prints what it would do.
+
+Two follow-ups would make the check stronger. A stub ACP agent, registered as a custom provider the documented way, could replace the development-only `mock`. A count of hook calls in the plugin's diagnostics would turn step 5's "no hook failed" into "every hook ran", but it changes the diagnostics contract, so it waits for a plugin release.
 
 ## Issues and pull requests
 

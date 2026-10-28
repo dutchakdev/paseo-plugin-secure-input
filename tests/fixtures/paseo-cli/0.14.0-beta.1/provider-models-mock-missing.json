@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "paseo",
+    "provider",
+    "models",
+    "mock",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "{\n  \"error\": {\n    \"code\": \"PROVIDER_ERROR\",\n    \"message\": \"Failed to fetch models for mock: Unknown provider: mock\"\n  }\n}\n"
+}

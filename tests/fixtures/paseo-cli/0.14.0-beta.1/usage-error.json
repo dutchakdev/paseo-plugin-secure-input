@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "paseo",
+    "plugin",
+    "ls",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json",
+    "--no-such-option"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "error: unknown option '--no-such-option'\n"
+}
