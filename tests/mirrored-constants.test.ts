@@ -144,7 +144,7 @@ describe("the version of the plugin and the Paseo it needs, as the settings scre
   it("is the version in package.json, and the lock file agrees", () => {
     const manifest = read<{ version: string }>("package.json");
     expect(limits.PLUGIN_VERSION).toBe(manifest.version);
-    expect(limits.PLUGIN_VERSION).toBe("0.2.0");
+    expect(limits.PLUGIN_VERSION).toBe("0.2.1");
     const lock = read<{ version: string; packages: Record<string, { version: string }> }>("package-lock.json");
     expect(lock.version).toBe(manifest.version);
     expect(lock.packages[""]?.version).toBe(manifest.version);

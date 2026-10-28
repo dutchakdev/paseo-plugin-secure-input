@@ -26,7 +26,7 @@ export const LIMITS = {
 export const DROP_TTL_MS = 900_000;
 
 /** The version of the plugin, as the settings screen says it. `tests/mirrored-constants.test.ts` holds it equal to the version in `package.json`. */
-export const PLUGIN_VERSION = "0.2.0";
+export const PLUGIN_VERSION = "0.2.1";
 
 /** The release of Paseo the plugin needs, as the settings screen says it. The same test holds it to the requirement in `paseo-plugin.json`. */
 export const PASEO_SINCE = "Paseo 0.14+";

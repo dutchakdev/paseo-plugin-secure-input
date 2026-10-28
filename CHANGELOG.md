@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-10-28
 
 ### Changed
 
 - Shortened the README and moved detailed guidance to SECURITY.md, CONTRIBUTING.md and the agent skill.
+
+### Fixed
+
+- The agent skill's recipes make the destination file private before any byte of a value is written to it. Before, a file that already existed was made private only after the write.
 
 ## 0.2.0 - 2026-10-28
 

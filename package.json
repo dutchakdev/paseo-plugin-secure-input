@@ -1,6 +1,6 @@
 {
   "name": "paseo-plugin-secure-input",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Secure secret input for Paseo agents: a typed value or a whole file travels sealed to the daemon and lands in a short-lived file; the agent gets its path, never the value",
   "type": "module",
   "license": "MIT",
