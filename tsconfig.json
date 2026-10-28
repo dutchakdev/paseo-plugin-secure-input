@@ -1,0 +1,8 @@
+// What an editor opens, and what esbuild reads. It checks no file itself: the server, the client and the tests that load
+// the client are three projects, because they run in different places or against different global types.
+// `npm run typecheck` runs all three.
+{
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": [{ "path": "./tsconfig.server.json" }, { "path": "./tsconfig.client.json" }, { "path": "./tsconfig.client-tests.json" }]
+}

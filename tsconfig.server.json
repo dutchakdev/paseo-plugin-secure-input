@@ -1,0 +1,27 @@
+// The daemon half and the tests that load nothing of the app, checked with Node's types. `shared/` is checked here and
+// in the client project. The tests excluded below import modules of `client/`, which bring React Native's global types
+// with them; they are checked in `tsconfig.client-tests.json`, so that nothing here compiles against those types.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["index.server.ts", "server/**/*", "shared/**/*", "tests/**/*"],
+  "exclude": [
+    "tests/codes.test.ts",
+    "tests/diagnostics-rows.test.ts",
+    "tests/dialog-state.test.ts",
+    "tests/docs.test.ts",
+    "tests/envelope-cache.test.ts",
+    "tests/file-entry.test.ts",
+    "tests/form-state.test.ts",
+    "tests/mirrored-constants.test.ts",
+    "tests/outcome.test.ts",
+    "tests/presentation.test.ts",
+    "tests/sealing.test.ts",
+    "tests/self-test.test.ts",
+    "tests/submit.test.ts",
+    "tests/text.test.ts",
+    "tests/views.test.ts",
+    "tests/web.test.ts",
+    "tests/wiring.test.ts"
+  ]
+}

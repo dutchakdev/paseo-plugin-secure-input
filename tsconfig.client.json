@@ -1,0 +1,7 @@
+// The app half, which runs on Hermes (and in a browser): no Node types, no DOM library, so that what only Node has
+// does not compile here. `client/globals.d.ts` names the three globals `shared/` needs from the runtime.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "types": [] },
+  "include": ["index.client.tsx", "client/**/*", "shared/**/*"]
+}

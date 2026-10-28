@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      # Pinned on purpose: the SDK at the oldest supported Paseo (0.14.0-beta.1), so typechecking
+      # proves the plugin uses only that API, and tests/mirrored-constants.test.ts holds the
+      # largest RPC to that release's protocol and relay; react and react-native at what the
+      # Paseo app supplies at runtime, since the plugin never bundles them.
+      - dependency-name: '@getpaseo/*'
+      - dependency-name: react
+      - dependency-name: react-native
+      - dependency-name: '@types/react'
+      # Node types follow the oldest Node.js the CI matrix runs (22.12), so typechecking
+      # catches an API that Node lacks.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: github-actions
+    # `/` covers the workflows only; the composite action needs its own entry.
+    directories: ['/', '/.github/actions/*']
+    schedule:
+      interval: monthly

@@ -1,0 +1,29 @@
+name: Check
+description: Install dependencies, typecheck, and run the tests.
+
+inputs:
+  node-version:
+    description: Node.js version. Empty uses .node-version.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.node-version == '' && '.node-version' || '' }}
+        cache: npm
+    # The lock was resolved with npm's default peer handling, so it is installed the same way.
+    - name: Install dependencies
+      shell: bash
+      run: npm ci --ignore-scripts
+    # The suite refuses to run as root and needs git and /bin/sh; the hosted runners have both and run as a user.
+    - name: Typecheck
+      shell: bash
+      run: npm run typecheck
+    - name: Run tests
+      shell: bash
+      run: npm test

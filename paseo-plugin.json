@@ -1,0 +1,6 @@
+{
+  "id": "secure-input",
+  "description": "Agents ask for secrets through a form; each value or file lands in a short-lived file the agent moves without reading it",
+  "icon": "assets/icon.png",
+  "requirements": { "paseo": ">=0.14.0-beta.1" }
+}

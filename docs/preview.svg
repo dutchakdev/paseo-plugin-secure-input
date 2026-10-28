@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="447" viewBox="0 0 980 447">
+  <defs>
+    <radialGradient id="glow" cx="0.78" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#6c55f0" stop-opacity="0.30"/>
+      <stop offset="0.55" stop-color="#3a2d86" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#131516" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2126"/>
+      <stop offset="1" stop-color="#191a1f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a08cff"/>
+      <stop offset="1" stop-color="#7a62f2"/>
+    </linearGradient>
+    <pattern id="dots" width="18" height="18" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.045"/>
+    </pattern>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="447" rx="14" fill="#131516"/>
+  <rect x="0" y="0" width="980" height="447" rx="14" fill="url(#dots)"/>
+  <rect x="0" y="0" width="980" height="447" rx="14" fill="url(#glow)"/>
+
+  <!-- left: words -->
+  <text x="48" y="64" fill="#626a70" font-size="11" font-weight="600" font-family="system-ui, -apple-system, sans-serif" letter-spacing="1.6">SECURE-INPUT · PASEO PLUGIN</text>
+  <text x="46" y="128" fill="#f2f3f5" font-size="38" font-weight="700" font-family="system-ui, -apple-system, sans-serif" letter-spacing="-0.6">Secrets reach the server,</text>
+  <text x="46" y="174" fill="#f2f3f5" font-size="38" font-weight="700" font-family="system-ui, -apple-system, sans-serif" letter-spacing="-0.6">never the <tspan fill="url(#accent)">model</tspan>.</text>
+  <text x="48" y="218" fill="#8e939a" font-size="15" font-family="system-ui, -apple-system, sans-serif">The agent asks. You type. It is sealed on your device,</text>
+  <text x="48" y="240" fill="#8e939a" font-size="15" font-family="system-ui, -apple-system, sans-serif">opened on the daemon, and the agent gets only a file path.</text>
+
+  <!-- left: the path of a value -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5">
+    <rect x="48" y="282" width="82" height="30" rx="8" fill="#1d1f24" stroke="#2c2f37"/>
+    <text x="89" y="301" fill="#c9ccd3" text-anchor="middle">you</text>
+    <path d="M136 297 h22" stroke="#4b4f58" stroke-width="1.5"/><path d="M158 297 l-5 -4 v8z" fill="#4b4f58"/>
+    <rect x="164" y="282" width="182" height="30" rx="8" fill="#211d33" stroke="#3b3266"/>
+    <text x="255" y="301" fill="#b9a6ff" text-anchor="middle">sealed in the app</text>
+    <path d="M352 297 h22" stroke="#4b4f58" stroke-width="1.5"/><path d="M374 297 l-5 -4 v8z" fill="#4b4f58"/>
+    <rect x="380" y="282" width="118" height="30" rx="8" fill="#1d1f24" stroke="#2c2f37"/>
+    <text x="439" y="301" fill="#c9ccd3" text-anchor="middle">si-secret-…</text>
+    <text x="48" y="336" fill="#5d6268">the model sees: request completed · KEY → path</text>
+  </g>
+
+  <!-- left bottom: version, neat -->
+  <g font-family="system-ui, -apple-system, sans-serif">
+    <rect x="48" y="377" width="122" height="28" rx="14" fill="none" stroke="#3b3266"/>
+    <circle cx="66" cy="391" r="4" fill="#8b74ff"/>
+    <text x="78" y="395.5" fill="#b9a6ff" font-size="12.5" font-weight="600">Paseo 0.14+</text>
+    <text x="184" y="395.5" fill="#5d6268" font-size="12.5">X25519 · HKDF-SHA256 · ChaCha20-Poly1305</text>
+  </g>
+
+  <!-- right: the form -->
+  <g transform="translate(584, 92)">
+    <rect x="0" y="0" width="350" height="262" rx="16" fill="url(#card)" stroke="#2e3139"/>
+    <!-- header -->
+    <rect x="18" y="18" width="30" height="30" rx="9" fill="#2a2440"/>
+    <path d="M33 25 l8 3.4 v6.6 c0 5 -3.4 8.4 -8 10.1 c-4.6 -1.7 -8 -5.1 -8 -10.1 v-6.6 z" fill="none" stroke="#b9a6ff" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M29.6 35.2 l2.4 2.4 l4.2 -4.8" fill="none" stroke="#b9a6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="58" y="39" fill="#eef0f3" font-size="14" font-weight="650" font-family="system-ui, -apple-system, sans-serif">Секрети для агента</text>
+    <path d="M320 28 l9 9 M329 28 l-9 9" stroke="#6f727c" stroke-width="1.8" stroke-linecap="round"/>
+    <rect x="58" y="47" width="158" height="17" rx="5" fill="#211d33"/>
+    <text x="65" y="59" fill="#8f84c9" font-size="9.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">X25519 · ChaCha20-Poly1305</text>
+
+    <!-- rows -->
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5">
+      <rect x="18" y="82" width="314" height="36" rx="10" fill="#121317" stroke="#2c2f37"/>
+      <text x="32" y="104.5" fill="#9a9ca6">OPENAI_API_KEY</text>
+      <text x="152" y="105" fill="#e7e8ec" font-size="13" letter-spacing="2.4">••••••••••</text>
+      <path d="M300 100 c4 -6 14 -6 18 0 c-4 6 -14 6 -18 0 z" fill="none" stroke="#6f727c" stroke-width="1.5"/>
+      <circle cx="309" cy="100" r="2.6" fill="none" stroke="#6f727c" stroke-width="1.5"/>
+
+      <rect x="18" y="126" width="314" height="36" rx="10" fill="#121317" stroke="#2c2f37"/>
+      <text x="32" y="148.5" fill="#9a9ca6">STRIPE_KEY</text>
+      <text x="152" y="149" fill="#e7e8ec" font-size="13" letter-spacing="2.4">•••••••</text>
+      <path d="M300 144 c4 -6 14 -6 18 0 c-4 6 -14 6 -18 0 z" fill="none" stroke="#6f727c" stroke-width="1.5"/>
+      <circle cx="309" cy="144" r="2.6" fill="none" stroke="#6f727c" stroke-width="1.5"/>
+
+      <rect x="18" y="170" width="314" height="36" rx="10" fill="#121317" stroke="#2c2f37"/>
+      <text x="32" y="192.5" fill="#5d6069">WEBHOOK_SECRET</text>
+    </g>
+
+    <!-- actions -->
+    <rect x="18" y="218" width="32" height="32" rx="9" fill="#24262d"/>
+    <path d="M34 227 v14 M27 234 h14" stroke="#9a9ca6" stroke-width="2" stroke-linecap="round"/>
+    <rect x="300" y="218" width="32" height="32" rx="9" fill="url(#accent)"/>
+    <path d="M309 234 h14 M318 228.5 l5.5 5.5 l-5.5 5.5" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- the chat card beneath the form, quiet -->
+  <g transform="translate(584, 370)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">
+    <rect x="0" y="0" width="350" height="40" rx="11" fill="#18201c" stroke="#23302a"/>
+    <path d="M22 11 l7 3 v6 c0 4.4 -3 7.4 -7 9 c-4 -1.6 -7 -4.6 -7 -9 v-6 z" fill="none" stroke="#9fd8b5" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M19 20.5 l2.2 2.2 l3.8 -4.4" fill="none" stroke="#9fd8b5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="40" y="24.5" fill="#9fd8b5">OPENAI_API_KEY · STRIPE_KEY</text>
+  </g>
+</svg>

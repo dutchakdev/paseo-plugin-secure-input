@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a request, a form, a delivery or a deletion that went wrong.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include enough detail to reproduce the problem. Never attach a real secret, the content of a `si-secret-` file, or a screenshot of the form with a value shown; use a test value. Redact private paths, host names and tokens from logs and screenshots.
+
+        A vulnerability does not belong here: report it privately, as SECURITY.md says.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed problem and any visible error, such as the agent's message or a line in the form.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include versions where available. Do not include host addresses.
+      value: |
+        Plugin version or revision:
+        Paseo daemon version:
+        Paseo client type and version (desktop / web / native mobile):
+        Daemon OS and version:
+        Node.js version of the daemon:
+        Agent and its version (Claude Code / Codex / other):
+        Installation source (directory / npm / local checkout):
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Optional. `paseo plugin logs secure-input` shows the daemon side, and the plugin's Secure input settings screen its state.

@@ -1,0 +1,27 @@
+// The tests that import modules of the app half, checked with Node's types, under which they run. They are kept out of
+// the server project: the modules of `client/` bring React Native's global types with them, and the daemon half is
+// checked without those. A test that imports `client/` is listed here and in the exclusions of `tsconfig.server.json`
+// (`tests/client-boundaries.test.ts` holds the two to that). `npm run typecheck` runs this project after the other two.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": [
+    "tests/codes.test.ts",
+    "tests/diagnostics-rows.test.ts",
+    "tests/dialog-state.test.ts",
+    "tests/docs.test.ts",
+    "tests/envelope-cache.test.ts",
+    "tests/file-entry.test.ts",
+    "tests/form-state.test.ts",
+    "tests/mirrored-constants.test.ts",
+    "tests/outcome.test.ts",
+    "tests/presentation.test.ts",
+    "tests/sealing.test.ts",
+    "tests/self-test.test.ts",
+    "tests/submit.test.ts",
+    "tests/text.test.ts",
+    "tests/views.test.ts",
+    "tests/web.test.ts",
+    "tests/wiring.test.ts"
+  ]
+}

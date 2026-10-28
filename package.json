@@ -1,0 +1,70 @@
+{
+  "name": "paseo-plugin-secure-input",
+  "version": "0.2.0",
+  "description": "Secure secret input for Paseo agents: a typed value or a whole file travels sealed to the daemon and lands in a short-lived file; the agent gets its path, never the value",
+  "type": "module",
+  "license": "MIT",
+  "author": "dutchakdev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dutchakdev/paseo-plugin-secure-input.git"
+  },
+  "homepage": "https://github.com/dutchakdev/paseo-plugin-secure-input#readme",
+  "bugs": {
+    "url": "https://github.com/dutchakdev/paseo-plugin-secure-input/issues"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "keywords": [
+    "paseo",
+    "paseo-plugin",
+    "secrets",
+    "security"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json && tsc -p tsconfig.client-tests.json",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "prepack": "node scripts/shrinkwrap.mjs write",
+    "postpack": "node scripts/shrinkwrap.mjs remove"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "0.14.0-beta.1",
+    "@getpaseo/plugin": "0.14.0-beta.1",
+    "@getpaseo/protocol": "0.14.0-beta.1",
+    "@getpaseo/relay": "0.14.0-beta.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.0.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "semver": "7.8.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "zod": "^4.4.3"
+  },
+  "files": [
+    "paseo-plugin.json",
+    "npm-shrinkwrap.json",
+    "OVERVIEW.md",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "skills/",
+    "assets/icon.png",
+    "SECURITY.md"
+  ]
+}
