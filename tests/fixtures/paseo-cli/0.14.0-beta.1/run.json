@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "paseo",
+    "run",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json",
+    "--provider",
+    "mock/ten-second-stream",
+    "--cwd",
+    "/tmp/work-0.14.0-beta.1",
+    "--title",
+    "paseo-compat",
+    "--wait-timeout",
+    "90s",
+    "paseo-compat: one turn through the plugin's hooks"
+  ],
+  "exitCode": 0,
+  "stdout": "{\n  \"agentId\": \"fe990eca-14c8-4a13-981d-d3c27235287a\",\n  \"status\": \"completed\",\n  \"provider\": \"mock\",\n  \"cwd\": \"/tmp/work-0.14.0-beta.1\",\n  \"title\": \"paseo-compat\"\n}\n",
+  "stderr": "Created workspace wks_524cc030255f44b3 - work-0.14.0-beta.1\nTip: pass --workspace <id> (or set PASEO_WORKSPACE_ID) to run in an existing workspace.\n"
+}

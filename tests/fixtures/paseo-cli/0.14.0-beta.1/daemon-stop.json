@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "paseo",
+    "daemon",
+    "stop",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json",
+    "--force",
+    "--timeout",
+    "20",
+    "--kill-timeout",
+    "5"
+  ],
+  "exitCode": 0,
+  "stdout": "{\n  \"action\": \"stopped\",\n  \"pid\": 395,\n  \"forced\": false,\n  \"usedLifecycleRpc\": false,\n  \"home\": \"/tmp/home-0.14.0-beta.1\"\n}\n",
+  "stderr": ""
+}

@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "paseo",
+    "run",
+    "--home",
+    "/tmp/home-broken-0.14.0-beta.1",
+    "--json",
+    "--provider",
+    "mock/ten-second-stream",
+    "--cwd",
+    "/tmp/work-0.14.0-beta.1",
+    "--title",
+    "paseo-compat",
+    "--wait-timeout",
+    "90s",
+    "paseo-compat: one turn through the plugin's hooks"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "Created workspace wks_d763c9287abc8ccf - work-0.14.0-beta.1\nTip: pass --workspace <id> (or set PASEO_WORKSPACE_ID) to run in an existing workspace.\n{\n  \"error\": {\n    \"code\": \"AGENT_CREATE_FAILED\",\n    \"message\": \"Failed to create agent: Plugin secure-input before agent.session_open failed: [\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"unexpected\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"unexpected\\\\\\\"\\\"\\n  }\\n]\"\n  }\n}\n"
+}

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "paseo",
+    "plugin",
+    "logs",
+    "secure-input",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 0,
+  "stdout": "[\n  {\n    \"sequence\": 1,\n    \"timestamp\": \"2026-10-28T19:20:03.298Z\",\n    \"stream\": \"stdout\",\n    \"message\": \"[paseo] Loading plugin\"\n  },\n  {\n    \"sequence\": 2,\n    \"timestamp\": \"2026-10-28T19:20:04.375Z\",\n    \"stream\": \"stdout\",\n    \"message\": \"[paseo] Plugin ready\"\n  }\n]\n",
+  "stderr": ""
+}

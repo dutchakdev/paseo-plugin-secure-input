@@ -160,6 +160,14 @@ describe("the documents as files", () => {
     expect(anchors, "no document links to a heading any more").toBeGreaterThanOrEqual(5);
   });
 
+  // The plugin claims an open range of Paseo releases, so no release is a reason to edit a document: what npm's
+  // dist-tags point at changes with each one, and the Paseo compatibility workflow is what follows them.
+  it("say nothing of where npm's dist-tags of Paseo stand", () => {
+    for (const file of DOCUMENTS) {
+      expect(read(file), file).not.toMatch(/dist-tag|`latest` (was|is)|npm had it/);
+    }
+  });
+
   // v1 had a second skill, `secure-input-setup`, for its command templates; it went with them.
   it("are one skill, with its name and a description an agent can be matched on", () => {
     expect(readdirSync(join(ROOT, "skills"))).toEqual(["secure-input"]);

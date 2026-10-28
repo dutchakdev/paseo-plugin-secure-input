@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "paseo",
+    "ls",
+    "--all",
+    "--global",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 0,
+  "stdout": "[\n  {\n    \"id\": \"fe990eca-14c8-4a13-981d-d3c27235287a\",\n    \"shortId\": \"fe990ec\",\n    \"name\": \"paseo-compat\",\n    \"provider\": \"mock/ten-second-stream\",\n    \"thinking\": \"auto\",\n    \"status\": \"idle\",\n    \"cwd\": \"/tmp/work-0.14.0-beta.1\",\n    \"created\": \"just now\"\n  }\n]\n",
+  "stderr": ""
+}

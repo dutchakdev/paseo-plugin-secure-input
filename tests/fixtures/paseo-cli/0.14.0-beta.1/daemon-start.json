@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "paseo",
+    "daemon",
+    "start",
+    "--timeout",
+    "150",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 0,
+  "stdout": "{\n  \"action\": \"started\",\n  \"home\": \"/tmp/home-0.14.0-beta.1\",\n  \"pid\": 395,\n  \"listen\": \"127.0.0.1:43337\",\n  \"logPath\": \"/tmp/home-0.14.0-beta.1/daemon.log\"\n}\n",
+  "stderr": ""
+}

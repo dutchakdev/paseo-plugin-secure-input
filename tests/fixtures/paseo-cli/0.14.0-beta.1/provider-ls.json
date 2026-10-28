@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "paseo",
+    "provider",
+    "ls",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 0,
+  "stdout": "[\n  {\n    \"provider\": \"claude\",\n    \"label\": \"Claude\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"auto\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"codex\",\n    \"label\": \"Codex\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"auto-review\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"copilot\",\n    \"label\": \"Copilot\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"https://agentclientprotocol.com/protocol/session-modes#agent\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"opencode\",\n    \"label\": \"OpenCode\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"default\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"pi\",\n    \"label\": \"Pi\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"default\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"omp\",\n    \"label\": \"Oh My Pi\",\n    \"status\": \"unavailable\",\n    \"enabled\": \"Disabled\",\n    \"defaultMode\": \"full\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"mock\",\n    \"label\": \"Mock Load Test\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"load-test\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"mock-slow\",\n    \"label\": \"Mock Slow Provider\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"default\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"antigravity\",\n    \"label\": \"Antigravity\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"default\",\n    \"modes\": \"\"\n  },\n  {\n    \"provider\": \"muse\",\n    \"label\": \"Muse Code\",\n    \"status\": \"loading\",\n    \"enabled\": \"Enabled\",\n    \"defaultMode\": \"default\",\n    \"modes\": \"\"\n  }\n]\n",
+  "stderr": ""
+}

@@ -30,6 +30,7 @@
     "typecheck": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json && tsc -p tsconfig.client-tests.json",
     "test": "vitest run",
     "check": "npm run typecheck && npm test",
+    "test:paseo": "node scripts/paseo-compat.mjs",
     "prepack": "node scripts/shrinkwrap.mjs write",
     "postpack": "node scripts/shrinkwrap.mjs remove"
   },

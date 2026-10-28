@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "paseo",
+    "plugin",
+    "ls",
+    "--home",
+    "/tmp/home-0.14.0-beta.1",
+    "--json"
+  ],
+  "exitCode": 0,
+  "stdout": "[\n  {\n    \"id\": \"secure-input\",\n    \"path\": \"/home/node/work\",\n    \"enabled\": true,\n    \"status\": \"running\",\n    \"description\": \"Agents ask for secrets through a form; each value or file lands in a short-lived file the agent moves without reading it\",\n    \"icon\": \"assets/icon.png\",\n    \"installation\": {\n      \"identity\": {\n        \"kind\": \"directory\",\n        \"path\": \"/home/node/work\"\n      }\n    }\n  }\n]\n",
+  "stderr": ""
+}
