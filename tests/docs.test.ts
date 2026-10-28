@@ -3,17 +3,15 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, 
 import { dirname, join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { statusRows } from "../client/diagnostics-rows";
-import { checkForm, type FormRow } from "../client/form-state";
+import { addRow, type FormRow, type FormState } from "../client/form-state";
 import { continuationText, shellPath, tamperText } from "../server/core/continuation";
 import { FLUSH_BUDGET_MS, MAX_OUTBOX_AGE_MS, MAX_OUTBOX_ITEMS, OUTBOX_CLOCK_SKEW_MS, PORT_FLOOR_MS, PORT_TIMEOUT_MS } from "../server/core/outbox";
 import { ADMISSION_WAIT_MS, DROP_SWEEP_BOUND_MS, HISTORY, MAX_RETRIES, SHUTDOWN_BOUND_MS, TTL_MS, requestDigestOf } from "../server/core/registry";
-import { EXPIRED_BY, RELEASED_BY, parseRecord, type RequestRecord } from "../server/core/registry-store";
+import { EXPIRED_BY, MAX_REQUESTS_BYTES, RELEASED_BY, parseRecord, type RequestRecord } from "../server/core/registry-store";
 import { DIRECTORY_MODE, DROP_MAX_DEPTH, FILE_MODE, filePath } from "../server/io/drop";
 import { EXPIRY_INTERVAL_MS, PASEO_STOP_WINDOW_MS, STARTUP_WAIT_MS } from "../server/paseo/plugin";
 import { MAX_UNSETTLED_APPENDS, SLOW_RETRY_TICKS } from "../server/paseo/runtime";
 import { TOOL_NAMES } from "../server/paseo/tools";
-import type { Diagnostics } from "../shared/contracts";
 import { ERROR_CODES } from "../shared/errors";
 import { DROP_TTL_MS, LIMITS } from "../shared/limits";
 import { InputRequestSchema, REQUEST_STATES, type InputRequest, type RequestState } from "../shared/request";
@@ -32,7 +30,7 @@ const SECURITY = "SECURITY.md";
 /** The listing text of the Paseo plugin directory, which the package ships. */
 const OVERVIEW = "OVERVIEW.md";
 const DOCUMENTS = [SKILL, README, SECURITY, OVERVIEW] as const;
-/** Documents of the repository that hold no claim of the code (a changelog says what was true of a release), but link. */
+/** Documents read for their links and tool names only: a changelog says what was true of a release, and CONTRIBUTING.md's claims of the release flow are reviewed by hand. */
 const NOTES = ["CHANGELOG.md", "CONTRIBUTING.md"] as const;
 const read = (file: string): string => readFileSync(join(ROOT, file), "utf8");
 
@@ -89,9 +87,6 @@ function tableUnder(file: string, heading: string): string[] {
   }
   return rows;
 }
-
-/** The cells of a table row, without the outer pipes. A pipe inside a code span would split a cell; the documents have none. */
-const cells = (row: string): string[] => row.slice(1, -1).split("|").map((cell) => cell.trim());
 
 function jsonExamples(file: string): unknown[] {
   return [...read(file).matchAll(/```json\n([\s\S]*?)\n```/g)].map((block) => JSON.parse(block[1] as string));
@@ -232,7 +227,7 @@ describe("the names in the documents", () => {
   // Checked on Paseo 0.14.0-beta.1 with real agents, an agent sees a tool as `mcp__paseo__<tool>` in Claude Code and in
   // Codex, and Paseo's timeline calls a call `paseo.<tool>`. A document may give no other.
   it("give a tool only the names an agent sees it by, and the README gives all four", () => {
-    for (const file of DOCUMENTS) {
+    for (const file of [...DOCUMENTS, ...NOTES]) {
       const text = read(file);
       const named = [...text.matchAll(/\bmcp__paseo__([A-Za-z0-9_]+)/g), ...text.matchAll(/\bpaseo\.([a-z]+(?:_[a-z]+)+)\b/g)].map((match) => match[1] as string);
       expect(named.filter((name) => !(TOOL_NAMES as readonly string[]).includes(name)), file).toEqual([]);
@@ -241,14 +236,10 @@ describe("the names in the documents", () => {
     expect([...inReadme].sort()).toEqual([...TOOL_NAMES].sort());
   });
 
-  it("list, in the README's table of when files go, every way a set goes, in the registry's order", () => {
-    const rows = tableUnder(README, "## Files and when they go").slice(2);
-    const ways = rows.map((row) => codeSpans(cells(row)[1] ?? "").join(" "));
-    expect(ways).toEqual([...RELEASED_BY]);
-  });
-
-  it("pair, in that table, each way a set goes with the event that is it, and with what the agent is told of it", () => {
-    // The words that name each event, as the row says it: who acts, or what happens.
+  // The list names no `releasedBy` code, which only `requests.json` holds: its entries stand in the registry's order, and
+  // each is known by its event. What the agent is told of each way is the skill's, under "What comes back".
+  it("list, in the README, every way a set goes, in the registry's order", () => {
+    // The words that name each event, as the entry says it: who acts, or what happens.
     const EVENT: Record<(typeof RELEASED_BY)[number], string> = {
       agent: "The agent calls `release_secret`, or deletes the directory itself",
       turn: "The end, with any outcome, of the agent's turn",
@@ -258,13 +249,13 @@ describe("the names in the documents", () => {
       human: "You press «Видалити всі файли секретів зараз»",
     };
     expect(Object.keys(EVENT)).toEqual([...RELEASED_BY]);
-    const rows = tableUnder(README, "## Files and when they go").slice(2).map(cells);
-    for (const [event, by, told] of rows as Array<[string, string, string]>) {
-      const way = codeSpans(by).join(" ") as (typeof RELEASED_BY)[number];
-      expect(event, way).toContain(EVENT[way]);
-      // What the agent is told is what the plugin says of a request released that way: nothing, or the files were deleted.
-      const said = continuationText(stored("released", { releasedBy: way }), DROP);
-      expect(told.startsWith("Nothing"), `${way}: ${told}`).toBe(said === null);
+    const section = sectionOf(README, "when-files-go");
+    expect(section.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(RELEASED_BY.length);
+    let after = -1;
+    for (const way of RELEASED_BY) {
+      const at = section.indexOf(EVENT[way]);
+      expect(at, way).toBeGreaterThan(after);
+      after = at;
     }
   });
 });
@@ -360,6 +351,47 @@ describe("the skill's recipes", () => {
     expect(mode(join(plain, "work", ".env.local"))).toBe(0o600);
   });
 
+  it("copy a whole file into a destination made private before any byte is copied, a file that was there already included", () => {
+    expect(spawnSync("git", ["--version"]).status, "these recipes need git").toBe(0);
+    const recipe = shBlocks(SKILL).find((block) => block.includes("cp PATH")) as string;
+    expect(recipe).toBeDefined();
+    const value = "CANARY-a-service-account-file";
+    const secret = join(tempDir("si file'value-"), "GCP_SA");
+    writeFileSync(secret, value, { mode: 0o600 });
+    const withPath = recipe.replaceAll("PATH", shellQuoted(secret));
+    const repository = (ignore: string | null) => {
+      const dir = tempDir("si-copy-");
+      expect(spawnSync("git", ["init", "-q"], { cwd: dir }).status).toBe(0);
+      mkdirSync(join(dir, "config"));
+      if (ignore !== null) writeFileSync(join(dir, ".gitignore"), ignore);
+      return dir;
+    };
+    const destination = (dir: string): string => join(dir, "config", "gcp-sa.json");
+
+    // A repository that ignores the file, a file that is not there yet.
+    const ignored = repository("config/\n");
+    expect(runRecipe(withPath, ignored)).toEqual({ status: 0, output: "" });
+    expect([readFileSync(destination(ignored), "utf8"), mode(destination(ignored))]).toEqual([value, 0o600]);
+
+    // A file that is there already, readable by others. A source that cannot be copied shows the order: the destination
+    // is private by then, and still holds what it held. Then the real copy replaces it.
+    const existing = repository("config/\n");
+    writeFileSync(destination(existing), "old");
+    chmodSync(destination(existing), 0o644);
+    const failed = runRecipe(recipe.replaceAll("PATH", shellQuoted(join(dirname(secret), "MISSING"))), existing);
+    expect(failed.status).not.toBe(0);
+    expect([readFileSync(destination(existing), "utf8"), mode(destination(existing))]).toEqual(["old", 0o600]);
+    expect(runRecipe(withPath, existing)).toEqual({ status: 0, output: "" });
+    expect([readFileSync(destination(existing), "utf8"), mode(destination(existing))]).toEqual([value, 0o600]);
+
+    // A repository that would track the file: the recipe stops before it touches anything, and says nothing.
+    const tracked = repository(null);
+    const stopped = runRecipe(withPath, tracked);
+    expect(stopped.status).not.toBe(0);
+    expect(stopped.output).toBe("");
+    expect(existsSync(destination(tracked))).toBe(false);
+  });
+
   it("write a token file on a server that only its user can read, a file that was there already included", () => {
     const recipe = shBlocks(SKILL).find((block) => block.startsWith("ssh ")) as string;
     expect(recipe).toBeDefined();
@@ -383,8 +415,8 @@ describe("the skill's recipes", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// The app's strings. Everything a document quotes in «…» is something the app says: a string of a client module, or
-// a line the app builds from the plugin's numbers and the human's names, built here by the app's own code.
+// The app's strings. Everything a document quotes in «…» is something the app says: a string of a client module, with
+// an ellipsis where the app fills in a key, a count or a time.
 // ---------------------------------------------------------------------------------------------------------------
 
 const CLIENT_MODULES = [
@@ -393,23 +425,6 @@ const CLIENT_MODULES = [
     .map((name) => `client/${name}`),
   "index.client.tsx",
 ];
-
-const textRow = (id: string, key: string, declared: boolean, text: string): FormRow => ({
-  id,
-  key,
-  declared,
-  optional: false,
-  format: "any",
-  value: { kind: "text", text },
-});
-
-/** The lines the form builds: a text over the limit, and a name of the human's that an earlier row has. */
-function renderedLines(): string[] {
-  const tooLong = checkForm({ rows: [textRow("field:A", "A", true, "x".repeat(LIMITS.valueBytes + 1))] }).errors.get("field:A");
-  const twice = checkForm({ rows: [textRow("row:1", "STRIPE_KEY", false, "a"), textRow("row:2", "STRIPE_KEY", false, "b")] }).errors.get("row:2");
-  if (tooLong === undefined || twice === undefined) throw new Error("the form no longer says what this test renders");
-  return [tooLong, twice];
-}
 
 /** The quotations of a text in «…», outermost only: «Натисни «→» ще раз.» is one quotation. Throws on unbalanced marks. */
 function guillemets(file: string): string[] {
@@ -434,9 +449,9 @@ function guillemets(file: string): string[] {
 
 describe("the app's words in the documents", () => {
   it("are strings of the app, as its modules spell them or build them", () => {
-    const strings = [...CLIENT_MODULES.flatMap(stringsOf), ...renderedLines()];
+    const strings = CLIENT_MODULES.flatMap(stringsOf);
     const quoted = DOCUMENTS.flatMap((file) => guillemets(file).map((text) => [file, text] as const));
-    expect(quoted.length).toBeGreaterThanOrEqual(30);
+    expect(quoted.length).toBeGreaterThanOrEqual(25);
     for (const [file, text] of quoted) expect(says(strings, text), `${file} quotes «${text}», which the app does not say`).toBe(true);
   });
 
@@ -482,7 +497,6 @@ const PHRASES: Array<[phrase: string, source: string]> = [
   ["is shutting down", "server/core/registry.ts"],
   ["is busy", "server/core/registry.ts"],
   ["End your turn now", "server/core/registry.ts"],
-  ["gives its tools through Paseo", "server/io/legacy-shim.ts"],
 ];
 
 describe("the plugin's words in the documents", () => {
@@ -692,32 +706,30 @@ describe("what comes back, in the skill", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// How a message to an agent can be lost is said in two places, the README's troubleshooting and SECURITY.md, and it is
-// one list: a case added to one of them and not to the other would make "only" false where it is missing.
+// How a message to an agent can be lost is one list, said in SECURITY.md alone, with the bounds of the queue in a table
+// under it; the README's troubleshooting row sends its reader there. A second copy would let a case be added to one and
+// not the other.
 // ---------------------------------------------------------------------------------------------------------------
 
 describe("how a message to an agent can be lost", () => {
-  const LOSS = /A message is sent once and is lost only in these cases: [^|]*? the plugin did not write\./;
+  const LOSS = /Each send is attempted at most once; a message can be lost when [^|]*? the plugin did not write\./;
   const said = (file: string): string[] => [...read(file).matchAll(new RegExp(LOSS, "g"))].map((match) => match[0]);
 
-  it("is said once in the README and once in SECURITY.md, in the same words", () => {
-    const [readme, security] = [said(README), said(SECURITY)];
-    expect(readme).toHaveLength(1);
+  it("is said once, in SECURITY.md, and names each way out of the two files a message depends on", () => {
+    const security = said(SECURITY);
     expect(security).toHaveLength(1);
-    expect(readme[0]).toBe(security[0]);
-    // The list names the two files a message depends on, and each way out of them.
-    for (const words of ["`outbox.json`", "`requests.json`", "never tried twice", "archived", "a stop of the plugin"]) expect(readme[0], words).toContain(words);
+    expect(said(README)).toHaveLength(0);
+    for (const words of ["`outbox.json`", "`requests.json`", "at most once", "archived", "evicted", "a stop ran out of its time"]) expect(security[0], words).toContain(words);
   });
 
-  // The README's row gives the cases and leaves how a message waits to SECURITY.md: the section it links to must say it.
-  it("is, in the README, the row that sends its reader to the section of SECURITY.md that says how a message waits", () => {
+  // The README's row leaves how a message waits and how it is lost to SECURITY.md: the section it links to must say both.
+  it("is, in the README, the row that sends its reader to the section of SECURITY.md that says how a message waits and how it is lost", () => {
     const row = tableUnder(README, "## When something is wrong").find((line) => line.startsWith("| The agent never continued")) as string;
     expect(row).toBeDefined();
-    expect(row).toContain(said(README)[0] as string);
     const anchor = /\]\(SECURITY\.md#([a-z-]+)\)/.exec(row)?.[1];
     expect(anchor, row).toBeDefined();
     const section = sectionOf(SECURITY, anchor as string);
-    for (const claim of WAITING) expect(section, String(claim.pattern)).toMatch(claim.pattern);
+    for (const claim of BOUNDS) expect(section, String(claim.pattern)).toMatch(claim.pattern);
     expect(section).toContain(said(SECURITY)[0]);
   });
 });
@@ -732,6 +744,7 @@ describe("how a message to an agent can be lost", () => {
 const NUMBER_WORDS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"] as const;
 const WORDS: ReadonlyMap<string, number> = new Map(NUMBER_WORDS.map((word, index) => [word, index + 1] as const));
 const KIB = 1024;
+const MIB = KIB * KIB;
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -759,19 +772,6 @@ function oneUnit(ms: number): string {
   return units.find(([length]) => length === ms)?.[1] ?? `${ms} ms`;
 }
 
-/** What the settings screen shows of a plugin with nothing to say: as many rows as it ever has. */
-const QUIET: Diagnostics = {
-  attached: true,
-  dataDir: "/data/secure-input",
-  registry: { persistence: "ok", drop: "ok", stored: "ok", dropped: 0 },
-  outbox: { persistence: "ok", unsaved: 0, dropped: 0 },
-  requests: { pending: 0, delivered: 0, nextDeleteBy: null },
-  startup: null,
-  cardsOwed: 0,
-  messagesHeld: false,
-  lastHookFailure: null,
-};
-
 interface Claim {
   file: string;
   /** What the document says, with one group for each number. */
@@ -798,40 +798,32 @@ const node = requirement("package.json", (json) => (json.engines as { node: stri
 const CHECKED_ON = "0.14.0-beta.1";
 
 // Said in the same words wherever it is said, so one pattern holds each of them to the code in every document.
-/** How long a set stays: the deadline from the write, and the minute tick for a machine that slept through it. */
-const LIFETIME: Array<Omit<Claim, "file">> = [
-  { pattern: /(?:at most )?(\d+) minutes after the write/, expected: [DROP_TTL_MS / MINUTE] },
-  { pattern: /within (an? \w+) of waking/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] },
-];
+/** How long a set stays at the most: the deadline from the write. */
+const DEADLINE: Omit<Claim, "file"> = { pattern: /(?:at most )?(\d+) minutes after the write/, expected: [DROP_TTL_MS / MINUTE] };
+/** The minute tick, for a machine that slept through the deadline. */
+const WAKING: Omit<Claim, "file"> = { pattern: /within (an? \w+) of waking/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] };
 /**
- * How a message to an agent waits, when the plugin asks whether the agent is idle, and what a call for it may take:
- * SECURITY.md's row, to which the README's row sends the reader.
+ * The bounds of the message queue, as the table under "Crashes, stops and restarts" in SECURITY.md gives them: how long
+ * a message waits and how many wait, the clock skew that drops one, how long a request is remembered, and what the idle
+ * check and the send may take. The README's troubleshooting row sends the reader there.
  */
-const WAITING: Array<Omit<Claim, "file">> = [
-  { pattern: /waits, up to (an? \w+), in `outbox\.json`/, expected: [oneUnit(MAX_OUTBOX_AGE_MS)] },
-  { pattern: /within about (an? \w+) of the agent becoming idle/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] },
-  { pattern: /the plugin asks once (an? \w+)/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] },
+const BOUNDS: Array<Omit<Claim, "file">> = [
+  { pattern: /up to (an? \w+); the outbox holds (\d+) messages/, expected: [oneUnit(MAX_OUTBOX_AGE_MS), MAX_OUTBOX_ITEMS] },
+  { pattern: /by more than (an? \w+): the message goes/, expected: [oneUnit(OUTBOX_CLOCK_SKEW_MS)] },
+  { pattern: /the last (\d+) closed requests, or fewer when `requests\.json` would exceed (\d+) MiB/, expected: [HISTORY, MAX_REQUESTS_BYTES / MIB] },
   {
-    pattern: /may take (\d+) seconds, or what is left of the (\d+) seconds one round may take, and (\d+) second once/,
-    expected: [PORT_TIMEOUT_MS / 1000, FLUSH_BUDGET_MS / 1000, PORT_FLOOR_MS / 1000],
+    pattern: /asks once (an? \w+); one call may take (\d+) seconds, one round (\d+) seconds, and (\d+) second once/,
+    expected: [oneUnit(EXPIRY_INTERVAL_MS), PORT_TIMEOUT_MS / 1000, FLUSH_BUDGET_MS / 1000, PORT_FLOOR_MS / 1000],
   },
 ];
-/** How a message to an agent can be lost: the one sentence the README and SECURITY.md say in the same words. */
-const LOSS_CASES: Array<Omit<Claim, "file">> = [
-  { pattern: /waited longer than (an? \w+)/, expected: [oneUnit(MAX_OUTBOX_AGE_MS)] },
-  { pattern: /more than (\d+) messages wait/, expected: [MAX_OUTBOX_ITEMS] },
-  { pattern: /set back by more than (an? \w+)/, expected: [oneUnit(OUTBOX_CLOCK_SKEW_MS)] },
-  { pattern: /the history of the last (\d+) closed ones/, expected: [HISTORY] },
-];
-/** How often a pill that did not land is tried again, and how seldom once the daemon has left appends of it unanswered. */
-const PILL: Array<Omit<Claim, "file">> = [
-  { pattern: /tried again once (an? \w+)/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] },
-  {
-    pattern: /once in (\w+) minutes while the daemon has left (\w+) appends of it unanswered/,
-    expected: [(SLOW_RETRY_TICKS * EXPIRY_INTERVAL_MS) / MINUTE, MAX_UNSETTLED_APPENDS],
-  },
-];
-/** The limits of a request, as the skill and the README's table of the input say them. */
+/** How often what did not land or could not be removed (a pill, an entry of `drop/`) is tried again: at the plugin's tick. */
+const TICK: Omit<Claim, "file"> = { pattern: /tried again once (an? \w+)/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] };
+/** How seldom a pill is tried once the daemon has left appends of it unanswered: SECURITY.md alone says it. */
+const SLOW_PILL: Omit<Claim, "file"> = {
+  pattern: /once in (\w+) minutes while the daemon has left (\w+) appends of it unanswered/,
+  expected: [(SLOW_RETRY_TICKS * EXPIRY_INTERVAL_MS) / MINUTE, MAX_UNSETTLED_APPENDS],
+};
+/** The limits of a request, as the skill says them; the README gives only the two sizes and the row cap a human meets. */
 const REQUEST_LIMITS: Array<Omit<Claim, "file">> = [
   { pattern: /`reason`[^\n]*?at most (\d+) characters/i, expected: [LIMITS.reason] },
   { pattern: /`label`[^\n]*?at most (\d+) characters/i, expected: [LIMITS.label] },
@@ -850,30 +842,20 @@ const CLAIMS: Claim[] = [
   { file: README, pattern: /Paseo \*\*(\S+) or later\*\*/, expected: [paseo] },
   // Said of the release the manifest requires: once it requires a release that is not a pre-release, the sentence goes.
   { file: README, pattern: /Paseo (\S+) is a pre-release/, expected: [paseo] },
-  { file: README, pattern: /Node\.js must be (\d+\.\d+) or later/, expected: [node] },
-  { file: README, pattern: /home of Paseo (\S+) has it off/, expected: [CHECKED_ON] },
-  { file: README, pattern: /Checked on Paseo (\S+) with/, expected: [CHECKED_ON] },
-  { file: README, pattern: /Seen on Paseo (\S+);/, expected: [CHECKED_ON] },
-  {
-    file: README,
-    pattern: /`<data>\/drop\/si-secret-<requestId>\/`, mode `(\d+)`, with a file for each key, mode `(\d+)`/,
-    expected: [Number(DIRECTORY_MODE.toString(8)), Number(FILE_MODE.toString(8))],
-  },
-  { file: README, pattern: /serves (\w+) tools/, expected: [TOOL_NAMES.length] },
-  ...REQUEST_LIMITS.map((claim) => ({ file: README, ...claim })),
+  { file: README, pattern: /Node\.js (\d+\.\d+) or later/, expected: [node] },
+  { file: README, pattern: /home of Paseo (\S+) has that off/, expected: [CHECKED_ON] },
+  { file: README, pattern: /has (\w+) tools beside Paseo's own/, expected: [TOOL_NAMES.length] },
+  { file: README, pattern: /one line of at most (\d+) KiB/, expected: [LIMITS.valueBytes / KIB] },
+  { file: README, pattern: /a file is at most (\d+) KiB/, expected: [LIMITS.fileBytes / KIB] },
   { file: README, pattern: /expires after (\d+) hours/, expected: [TTL_MS / HOUR] },
-  { file: README, pattern: /after (\w+) failed attempts/, expected: [MAX_RETRIES] },
-  { file: README, pattern: /every file: at most (\d+) KiB/, expected: [LIMITS.fileBytes / KIB] },
-  ...LIFETIME.map((claim) => ({ file: README, ...claim })),
+  // The cap on a form's rows, which `addRow` holds «+» to (below).
+  { file: README, pattern: /holds at most (\d+) rows/, expected: [LIMITS.fields] },
+  { file: README, ...DEADLINE },
+  { file: README, ...WAKING },
   { file: README, pattern: /busy for more than (\d+) minutes/, expected: [DROP_TTL_MS / MINUTE] },
-  { file: README, pattern: /«Стан» has (\w+) rows/, expected: [statusRows(QUIET).length] },
-  ...LOSS_CASES.map((claim) => ({ file: README, ...claim })),
-  { file: README, pattern: /its turn in the plugin's work queue for at most (\d+) seconds/, expected: [ADMISSION_WAIT_MS / 1000] },
-  // A set of this run that would not go waits for its deadline, and is then tried at every tick.
-  { file: README, pattern: /tried again at its deadline, and after that once (an? \w+)/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] },
-  ...PILL.map((claim) => ({ file: README, ...claim })),
   // SECURITY.md
-  ...LIFETIME.map((claim) => ({ file: SECURITY, ...claim })),
+  { file: SECURITY, ...DEADLINE },
+  { file: SECURITY, ...WAKING },
   { file: SECURITY, pattern: /Of the (\w+) tools/, expected: [TOOL_NAMES.length] },
   { file: SECURITY, pattern: /a file of mode `(\d+)` in a directory of mode `(\d+)`/, expected: [Number(FILE_MODE.toString(8)), Number(DIRECTORY_MODE.toString(8))] },
   { file: SECURITY, pattern: /padded to a multiple of (\d+) KiB/, expected: [PAD_BLOCK / KIB] },
@@ -888,25 +870,28 @@ const CLAIMS: Claim[] = [
   { file: SECURITY, pattern: /waits up to (\d+) seconds for the start-up/, expected: [STARTUP_WAIT_MS / 1000] },
   { file: SECURITY, pattern: /waits there for its turn for at most (\d+) seconds/, expected: [ADMISSION_WAIT_MS / 1000] },
   { file: SECURITY, pattern: /longer than the (\d+) seconds Paseo gives/, expected: [PASEO_STOP_WINDOW_MS / 1000] },
-  ...WAITING.map((claim) => ({ file: SECURITY, ...claim })),
-  ...LOSS_CASES.map((claim) => ({ file: SECURITY, ...claim })),
-  ...PILL.map((claim) => ({ file: SECURITY, ...claim })),
+  // A delivered set that would not go waits for its deadline, and is then tried at every tick; what a start or a failed
+  // write left is tried at every tick (`TICK`).
+  { file: SECURITY, pattern: /tried again at its deadline, and after that once (an? \w+)/, expected: [oneUnit(EXPIRY_INTERVAL_MS)] },
+  ...BOUNDS.map((claim) => ({ file: SECURITY, ...claim })),
+  { file: SECURITY, ...TICK },
+  { file: SECURITY, ...SLOW_PILL },
   { file: SECURITY, pattern: /older than the plugin requires \((\S+)\)/, expected: [paseo] },
   // The listing text
   { file: OVERVIEW, pattern: /The agent has (\w+) tools, which Paseo serves/, expected: [TOOL_NAMES.length] },
   { file: OVERVIEW, pattern: /a whole file of up to (\d+) KiB/, expected: [LIMITS.fileBytes / KIB] },
   {
     file: OVERVIEW,
-    pattern: /a directory of mode (\d+) with a file of mode (\d+)/,
+    pattern: /directories of mode (\d+) with files of mode (\d+)/,
     expected: [Number(DIRECTORY_MODE.toString(8)), Number(FILE_MODE.toString(8))],
   },
-  ...LIFETIME.map((claim) => ({ file: OVERVIEW, ...claim })),
+  { file: OVERVIEW, ...DEADLINE },
   { file: OVERVIEW, pattern: /Paseo (\S+) or later on the daemon and in the app/, expected: [paseo] },
   { file: OVERVIEW, pattern: /with Node\.js (\d+\.\d+) or later/, expected: [node] },
 ];
 
 /** How many quantities the scanner found in the four documents when the count was last taken. */
-const QUANTITIES_TODAY = 65;
+const QUANTITIES_TODAY = 48;
 
 /** Numbers that are not limits of the code: a measurement of a machine, or a count in an example. */
 const NOT_A_LIMIT: ReadonlyArray<readonly [string, string]> = [];
@@ -928,7 +913,6 @@ describe("the numbers in the documents", () => {
     // Read from the manifest, the package and the app; if that failed, say so here and not as a mismatch.
     expect(paseo).toMatch(/^\d+\.\d+\.\d+(-[a-z]+\.\d+)?$/);
     expect(node).toMatch(/^\d+\.\d+$/);
-    expect(statusRows(QUIET)).toHaveLength(4);
     // A pattern that ignores case is matched ignoring case: the flags are the claim's own.
     expect(matchesOf({ file: README, pattern: /at most (\d+) fields/i, expected: [] }, "At most 32 fields").length).toBe(1);
     for (const claim of CLAIMS) {
@@ -938,6 +922,14 @@ describe("the numbers in the documents", () => {
         expect(match.slice(1).map(numberOf), `${claim.file}: "${match[0]}" against the code`).toEqual(claim.expected);
       }
     }
+  });
+
+  // The README's cap on a form's rows is the form's own: «+» adds nothing to a full form, and one row to a form one short of it.
+  it("give, in the README, the row cap the form holds «+» to", () => {
+    const row = (n: number): FormRow => ({ id: `x${n}`, key: "", declared: false, optional: false, format: "any", value: { kind: "text", text: "" } });
+    const full: FormState = { rows: Array.from({ length: LIMITS.fields }, (_, n) => row(n)) };
+    expect(addRow(full, 999).rows).toHaveLength(LIMITS.fields);
+    expect(addRow({ rows: full.rows.slice(1) }, 999).rows).toHaveLength(LIMITS.fields);
   });
 
   // A scanner that finds nothing passes every document. So it is held to what it finds today, and to a table of sentences.

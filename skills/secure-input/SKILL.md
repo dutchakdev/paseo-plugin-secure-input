@@ -1,6 +1,6 @@
 ---
 name: secure-input
-description: Use when a task needs a secret from the human — a password, API key, token, private key, credentials file or connection string with credentials — or when you are about to tell the user to paste, export or type such a value themselves. Opens a secure form in the Paseo app; each value or file arrives as a short-lived file whose path you get, and you move it where it belongs without ever reading it.
+description: Use when a task needs a secret from the human (a password, API key, token, private key, credentials file or connection string with credentials), or when you are about to tell the user to paste, export or type such a value themselves. Opens a secure form in the Paseo app; each value or file arrives as a short-lived file whose path you get, and you move it where it belongs without ever reading it.
 ---
 
 # Secure input
@@ -19,23 +19,23 @@ When you need a secret, make a request instead of asking in chat. The user fills
 
 ## Asking
 
-The tool is `request_secret`, and its full name depends on your harness:
+The tool is `request_secret`; its full name depends on your harness:
 
 - Claude Code: `mcp__paseo__request_secret`, deferred. Load it with `ToolSearch` (`select:mcp__paseo__request_secret`) before the first call; the other three load the same way.
 - Codex: a nested tool of `exec`. Find it in `ALL_TOOLS` and call `tools.mcp__paseo__request_secret(…)`.
 - Elsewhere, look for a tool whose name ends in `request_secret`.
 
-If there is none, this session cannot use the plugin: tell the user, and do not ask for the secret in chat. Your harness may ask the user to allow each call of these tools; that is expected.
+If there is none, tell the user and stop. Your harness may ask the user to allow each call of these tools; that is expected.
 
 The input is `{ reason, fields }`, each field `{ key, label?, optional?, kind?, format? }`:
 
-- `reason`: one sentence, at most 300 characters. It is kept with the request and shown nowhere.
-- `label`: at most 80 characters. A screen reader reads it with its field, a text or a file; it is not shown.
+- `reason`: one sentence, at most 300 characters. Kept with the request and shown nowhere.
+- `label`: at most 80 characters. A screen reader reads it with its field; it is not shown.
 - `key`: `[A-Za-z_][A-Za-z0-9_]*`, at most 128 characters, not `__proto__`, `constructor` or `prototype`. It becomes the file's name, so keys that differ only in letter case are refused.
 - `kind`: `"text"` (the default) for one line, such as a token or a password, at most 64 KiB; `"file"` for a whole file, such as a JSON key, a PEM, a kubeconfig or a `.p12`, at most 128 KiB, binary included.
 - `format`: for a file only. `"json"` or `"pem"` is checked in the app; `"any"` (the default) is not.
 - `optional`: the user may leave it empty, and it then gets no file.
-- At most 32 fields, or none. The user can always add keys and files of their own.
+- At most 32 fields, or none. The user can add keys and files of their own; declared and added rows together are capped at the same 32.
 
 One key:
 
@@ -69,7 +69,7 @@ No keys, when you do not know their names. The user adds each key and its value:
 
 ## Moving a value blind
 
-Each path in the delivery message is already quoted for a shell: use it as it stands (`PATH` below). A path from `request_status` (`files`) is not: it is the path as it is, and may hold spaces or an apostrophe. Quote it yourself before a shell sees it, in single quotes, each `'` in it written as `'\''`. Run every move before your turn ends.
+Each path in the delivery message is already quoted for a shell: use it as it stands (`PATH` below). A path from `request_status` (`files`) is not: quote it yourself, in single quotes, each `'` in it written as `'\''`. Run every move before your turn ends.
 
 **Into `.env`**, as one line `KEY=value`, into a file that git does not track and only your user can read, with nothing printed:
 
@@ -79,15 +79,17 @@ Each path in the delivery message is already quoted for a shell: use it as it st
   { printf '\nSTRIPE_KEY='; cat; printf '\n'; } < PATH >> .env.local
 ```
 
-The first line goes on only outside a git repository, or when git ignores the file. When it stops there, nothing is written: ask the user where the value may go, and never add the file to git. The second line makes the file private: a new one is created `0600`, one that is there already is set to `0600`. The path stands only after `<`, and the output goes only into the file. The leading newline starts a line of its own even when the file does not end with one. The value goes in as typed, so a reader that treats `#`, quotes or spaces specially may read it differently. To learn whether the key is already there, count it by name, `grep -c '^STRIPE_KEY=' .env.local`, never by any part of a value; to replace it, ask the user. A value of several lines (a PEM, a JSON key) has no safe form on one `.env` line: ask for it as a file field and give it a file of its own, next.
+The first line goes on only outside a git repository, or when git ignores the file; when it stops there, nothing is written: ask the user where the value may go, and never add the file to git. The second line makes the file private, whether it is new or was there already. The leading newline starts a line of its own even when the file does not end with one. The value goes in as typed, so a reader that treats `#`, quotes or spaces specially may read it differently. To learn whether the key is already there, count it by name (`grep -c '^STRIPE_KEY=' .env.local`), never by any part of a value; to replace it, ask the user. A value of several lines (a PEM, a JSON key) has no safe form on one `.env` line: ask for it as a file field and give it a file of its own.
 
-**A whole file:**
+**A whole file**, into a destination you may replace:
 
 ```sh
-cp PATH config/gcp-sa.json && chmod 600 config/gcp-sa.json
+{ ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git check-ignore -q config/gcp-sa.json; } &&
+  ( umask 077; touch config/gcp-sa.json ) && chmod 600 config/gcp-sa.json &&
+  cp PATH config/gcp-sa.json
 ```
 
-`cp` keeps the mode of a destination that already existed, hence the `chmod`. Inside a git repository, make sure the destination is ignored first (`git check-ignore -q config/gcp-sa.json` succeeds), and never stage it.
+As for `.env`: the first line goes on only outside a git repository or when git ignores the destination, and the second makes the destination private before any byte is copied, whether it is new or was there already. `cp` then replaces its content. Never stage it.
 
 **On stdin**, to a tool that reads its secret there:
 
@@ -125,13 +127,13 @@ ssh HOST 'umask 077; mkdir -p ~/.config/app && touch ~/.config/app/token && chmo
 | `… deleted when the plugin restarted, …` | As above: the plugin restarted | The same |
 | `… deleted when the plugin stopped, …` | As above: the plugin stopped | The same |
 | `… deleted by the user, …` | As above: the user deleted every file in the plugin's settings | Ask the user before you ask again |
-| `… was rejected before any file was written (code). …` | Nothing was written | If it ends `Fix the cause and make a new request.`, do that. If it ends `Tell the user what happened. Do not make a new request yourself; …`, tell the user and stop |
+| `… was rejected` | No paths were delivered. A failed write can leave temporary files in the plugin's data directory, which the plugin keeps trying to remove and the settings screen reports | If it ends `Fix the cause and make a new request.`, do that. If it ends `Tell the user what happened. Do not make a new request yourself; …`, tell the user and stop |
 | `…: the user declined to provide the values.` | The user said no | Ask how they want to proceed; do not rephrase and retry |
 | `… expired before the user answered.` | Nobody answered in 8 hours | Ask again if the values are still needed |
 | `… expired when the plugin restarted. Nothing was delivered.` | The plugin restarted before the user submitted | Ask again if the values are still needed |
 | `Warning for request …: a second, different submission arrived after the values were delivered.` | Someone may have submitted before the user: the files may not have held what the user typed | Tell the user what you did with the values, and that the secret should be rotated |
 
-`request_status` gives `state`, `keys`, `written`, `tamper` and `errorCode`, and while the files exist, `files` (key → path) and `deleteBy`. Never a value. If it says `delivered`, move the files at those paths as you would from the message, each quoted for the shell first, as above. If it says `pending`, the form is still waiting: the user has not submitted, or the form refused what they sent and shows why. Either way the pill in this chat opens it; do not cancel and ask again, or the user types everything twice.
+`request_status` gives `state`, `keys`, `written`, `tamper` and `errorCode`, and while the files exist, `files` (key → path) and `deleteBy`. Never a value. If it says `delivered`, move the files at those paths as you would from the message, each quoted for the shell first. If it says `pending`, the form is still waiting: the user has not submitted, or the form refused what they sent and shows why. Either way the pill in this chat opens it; do not cancel and ask again, or the user types everything twice.
 
 Nothing comes when the files go the ordinary way: when you delete them or call `release_secret`, or at the end of your turn. A request you cancel ends without a message.
 

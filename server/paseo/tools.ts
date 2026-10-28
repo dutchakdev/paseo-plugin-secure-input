@@ -71,10 +71,8 @@ function filesOf(record: RequestRecord, drop: string): { files: Record<string, s
 }
 
 /**
- * Who is asking: the agent the daemon named for the call, and nothing the call itself says (an argument, the agent's
- * environment, a marker). The daemon takes that name from what the agent's MCP connection claims (`callerAgentId`),
- * which on Paseo 0.14.0-beta.1 no credential binds (SECURITY.md): it keeps apart the agents that use the connection
- * Paseo gave them, and not a process that reaches the daemon's MCP endpoint for agents and calls it as another agent.
+ * Who is asking: the agent identity Paseo supplies with the call, and nothing the call itself says (an argument, the
+ * agent's environment, a marker). Cross-agent impersonation is a host limitation; see SECURITY.md.
  */
 export function identityOf(agent: ToolAgent): AgentIdentity {
   return { agentId: agent.id, cwd: agent.cwd, title: agent.title };
