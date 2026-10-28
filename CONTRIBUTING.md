@@ -1,6 +1,6 @@
 # Contributing
 
-secure-input is a TypeScript plugin for Paseo 0.14.0-beta.1 and later: a React Native half in the Paseo app (the pill, the form, the settings screen) and a Node.js half on the daemon (the tools, the requests, the sets in `drop/`). A change must keep [SECURITY.md](SECURITY.md) true: no value in a tool result, a message, a pill, a status, an RPC answer, a log or a state file, and no sentence in a document that the code does not hold.
+secure-input is a TypeScript plugin for Paseo 0.14.0-beta.1 and later: a React Native half in the Paseo app (the pill, the form, the settings screen) and a Node.js half on the daemon (the tools, the requests, the sets in `drop/`). A change must keep [SECURITY.md](SECURITY.md) true: no value in a tool result, a message, a pill, a status, an RPC answer, a log or a state file. Update the user documentation when behavior changes, and verify its claims against the implementation.
 
 ## Setup
 
@@ -16,11 +16,11 @@ The tests use real files, directories and child processes, need `git` and `/bin/
 
 `npm run typecheck` checks three projects. `tsconfig.server.json` holds the daemon half and the tests that load nothing of the app, with Node's types; `tsconfig.client.json` the app half, which runs on Hermes, with neither Node's types nor the DOM's; `tsconfig.client-tests.json` the tests that import modules of `client/`, which bring React Native's global types with them. A new test that imports `client/` goes in the third project and in the exclusions of the first; `tests/client-boundaries.test.ts` fails until it does.
 
-The development SDK (`@getpaseo/*`) is pinned to 0.14.0-beta.1, the oldest release the manifest accepts, so typechecking proves the plugin uses only that API, and `tests/mirrored-constants.test.ts` holds the most one Paseo RPC may carry, which bounds a submission, to that release's protocol and relay. Server and client code import `@getpaseo/plugin` only: `@getpaseo/client` and `@getpaseo/protocol` are development dependencies, absent from an npm installation. The runtime dependencies are `@noble/ciphers`, `@noble/curves` and `@noble/hashes`; Paseo supplies `zod`, `react`, `react-native` and `@tanstack/react-query`.
+The development SDK (`@getpaseo/*`) is pinned to 0.14.0-beta.1, the oldest release the manifest accepts, so typechecking proves the plugin uses only that API, and `tests/mirrored-constants.test.ts` holds the most one Paseo RPC may carry, which bounds a submission, to that release's protocol and relay. Among the `@getpaseo/*` packages, runtime code imports only `@getpaseo/plugin`; `@getpaseo/client` and `@getpaseo/protocol` stay development dependencies, absent from an npm installation. The runtime dependencies are `@noble/ciphers`, `@noble/curves` and `@noble/hashes`; Paseo supplies `zod`, `react`, `react-native` and `@tanstack/react-query`.
 
 ## The documents are tested
 
-`tests/docs.test.ts` holds README.md, SECURITY.md, OVERVIEW.md and the skill to the code: every word of the app they quote in «…», the plugin's messages and refusals, the tool names, every number with a unit, the links and their anchors, and the skill's recipes, which it runs with a value in a real file. When a document changes, change what the test claims of it in the same commit; never loosen the test to let a sentence pass. `tests/canary.test.ts` sends recognisable values through the tools and the whole plugin, and fails if one turns up anywhere but in the files in `drop/`.
+`tests/docs.test.ts` holds README.md, SECURITY.md, OVERVIEW.md and the skill to the code where a check can: the tool names, the «…» strings against the app's modules, the plugin's messages and refusals as quoted, the numbers with a unit against the constants behind them, local links and anchors in the checkout, the request examples, the list of ways a set goes, and the `.env`, whole-file and remote-file recipes, which it runs with a value in a real file. It does not validate every prose claim, host behavior, external links or live commands; review those against the source and recorded validation evidence. When a document changes, change what the test claims of it in the same commit; never loosen the test to let a sentence pass. `tests/canary.test.ts` sends recognisable values through the tools and the whole plugin, and fails if one turns up anywhere but in the files in `drop/`.
 
 `docs/preview.png` is rendered from `docs/preview.svg` by `scripts/preview-png.sh` (Chrome and the Swift toolchain, macOS).
 
@@ -47,7 +47,7 @@ The plugin directory on paseo.sh pins an npm version: once the plugin is listed,
 
 ## Live validation
 
-After the checks, reload the plugin rather than restarting the daemon:
+Run the plugin from the checkout with `paseo plugin install "$PWD"`. After each edit, reload it rather than restarting the daemon; source edits are not picked up by themselves:
 
 ```sh
 paseo plugin reload secure-input
@@ -56,6 +56,8 @@ paseo plugin logs secure-input
 ```
 
 `running` covers the daemon half only. The app checks its own version before it runs the client half, so check the pill, the form and the settings screen in the app as well, on the desktop and on a phone, in light and dark themes, and press «Перевірити» on each. Use test values, never a real secret. Report automated checks separately from what you saw in the app.
+
+Observed on Paseo 0.14.0-beta.1 with Claude Code 2.1.311 and Codex 0.164.0: Claude Code lists the tools as `mcp__paseo__request_secret` and the other three alike, deferred until loaded with `ToolSearch`; Codex has them as nested tools of `exec`, listed in `ALL_TOOLS`, and one Codex model did not find them until told to look there. In Claude Code's `default` mode and Codex's `auto` mode every call asked for permission, and Claude Code also before each `cp` of a delivered file. Kimi and other modes were not tried.
 
 ## Issues and pull requests
 

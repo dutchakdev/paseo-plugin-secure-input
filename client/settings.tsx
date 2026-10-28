@@ -107,9 +107,9 @@ function Status({ data, failed, colors }: { data: Diagnostics | undefined; faile
 
 /**
  * Deletes every set of files at once, and reads the state again. What the plugin could not remove shows in the rows that
- * are read. A deletion that was refused as a whole (the plugin is stopping, `drop/` could not be swept) says so in one
- * fixed line under the button, `DELETE_FAILED`, until a press is not refused: the words of the refusal are not the
- * screen's to show.
+ * are read. When the clear call fails (the plugin is stopping, `drop/` could not be swept), earlier removals may have
+ * succeeded; one fixed line under the button, `DELETE_FAILED`, says that it failed, until a press succeeds: the words of
+ * the failure are not the screen's to show.
  */
 function DeleteAll({ refresh }: { refresh(): Promise<unknown> }) {
   const clear = useRpc(clearDrop);

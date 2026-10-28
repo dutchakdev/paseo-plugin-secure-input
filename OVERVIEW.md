@@ -1,4 +1,4 @@
-secure-input lets an agent ask you for a password, an API key, a token or a whole credentials file through a form in the Paseo app instead of in the chat. The app seals what you enter, the daemon writes each value to a short-lived file that only your OS user can read, and the agent gets the paths, never the values, and moves each one where it belongs without reading it.
+secure-input lets an agent ask you for a password, an API key, a token or a whole credentials file through a form in the Paseo app instead of in the chat. The app seals what you enter, the daemon writes each value to a short-lived file that only your OS user can read, and the agent gets only the paths; the skill has it move each file's content without reading it, which holds as far as the agent follows the skill.
 
 ## What you see
 
@@ -14,15 +14,15 @@ The agent has four tools, which Paseo serves beside its own: `request_secret` to
 
 ## Setup
 
-- Paseo 0.14.0-beta.1 or later on the daemon and in the app: an older app does not load the pill, the form or the settings screen. A macOS or Linux daemon with Node.js 22.12 or later.
+- Paseo 0.14.0-beta.1 or later on the daemon and in the app: an older app does not load the pill, the form or the settings screen. A macOS or Linux daemon with Node.js 22.12 or later; live validation has been on macOS.
 - Paseo must give its tools to agents (`daemon.mcp.injectIntoAgents`): while that is off, no agent has the plugin's tools.
 - Link the skill where your agents read skills, as the [README](https://github.com/dutchakdev/paseo-plugin-secure-input#install) shows.
 - Answer from the app over the relay or Tailscale: a direct LAN connection with a password is not encrypted.
 
 ## When the files go
 
-Each delivery is a directory of mode 0700 with a file of mode 0600 for each key you filled in. It is deleted when the agent releases it, at the end of the agent's turn that its message starts, 15 minutes after the write (on a machine that slept, within a minute of waking), and at every start and stop of the plugin. Deletion removes the files and overwrites nothing first.
+The plugin writes directories of mode 0700 with files of mode 0600, one per key you filled in. It tries to delete them when the agent releases the set, at the end of the agent's turn that its message starts, 15 minutes after the write, and at every start and stop of the plugin. A crash or a failed removal can leave files behind until a later attempt succeeds. Deletion does not overwrite their content.
 
 ## What it does not protect against
 
-While a file exists, any process of your OS user can read it, the agent included, and on Paseo 0.14.0-beta.1 a local process that can reach the daemon can call the tools as another agent. What keeps a value out of the model is the skill's rule and the plugin's silence. The plugin's SECURITY.md names every case where its promise does not hold.
+While a file exists, any process of your OS user can read it, the agent included, and on Paseo 0.14.0-beta.1 a local process with access to the daemon can impersonate an agent. What keeps a value out of the model is the skill's rule and the plugin leaving values out of its outputs. [SECURITY.md](https://github.com/dutchakdev/paseo-plugin-secure-input/blob/main/SECURITY.md) describes the threat model and known limitations.

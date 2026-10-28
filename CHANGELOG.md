@@ -4,7 +4,7 @@
 
 ### Changed
 
-- The documentation is rewritten shorter: the README holds what you need to install and use the plugin, and the details live in SECURITY.md, CONTRIBUTING.md and the skill.
+- Shortened the README and moved detailed guidance to SECURITY.md, CONTRIBUTING.md and the agent skill.
 
 ## 0.2.0 - 2026-10-28
 

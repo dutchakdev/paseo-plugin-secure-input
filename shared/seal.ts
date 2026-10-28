@@ -208,7 +208,7 @@ export function payloadSize(values: readonly PayloadEntry[]): number {
 }
 
 /**
- * Canonical JSON padded to a block multiple, so message size in a trace does not reveal value length.
+ * Canonical JSON padded to a block multiple, to reduce the precision of length information in message traces.
  *
  * A payload larger than `MAX_PAYLOAD_BYTES` is refused before anything is built: it would not fit the RPC that carries
  * it. Otherwise the payload is built once to be measured and, unless it fills its blocks already, once more with the

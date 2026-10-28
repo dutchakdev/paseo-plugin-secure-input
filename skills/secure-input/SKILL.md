@@ -35,7 +35,7 @@ The input is `{ reason, fields }`, each field `{ key, label?, optional?, kind?, 
 - `kind`: `"text"` (the default) for one line, such as a token or a password, at most 64 KiB; `"file"` for a whole file, such as a JSON key, a PEM, a kubeconfig or a `.p12`, at most 128 KiB, binary included.
 - `format`: for a file only. `"json"` or `"pem"` is checked in the app; `"any"` (the default) is not.
 - `optional`: the user may leave it empty, and it then gets no file.
-- At most 32 fields, or none. The user can always add keys and files of their own.
+- At most 32 fields, or none. The user can add keys and files of their own; declared and added rows together are capped at the same 32.
 
 One key:
 
@@ -81,13 +81,15 @@ Each path in the delivery message is already quoted for a shell: use it as it st
 
 The first line goes on only outside a git repository, or when git ignores the file; when it stops there, nothing is written: ask the user where the value may go, and never add the file to git. The second line makes the file private, whether it is new or was there already. The leading newline starts a line of its own even when the file does not end with one. The value goes in as typed, so a reader that treats `#`, quotes or spaces specially may read it differently. To learn whether the key is already there, count it by name (`grep -c '^STRIPE_KEY=' .env.local`), never by any part of a value; to replace it, ask the user. A value of several lines (a PEM, a JSON key) has no safe form on one `.env` line: ask for it as a file field and give it a file of its own.
 
-**A whole file:**
+**A whole file**, into a destination you may replace:
 
 ```sh
-cp PATH config/gcp-sa.json && chmod 600 config/gcp-sa.json
+{ ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git check-ignore -q config/gcp-sa.json; } &&
+  ( umask 077; touch config/gcp-sa.json ) && chmod 600 config/gcp-sa.json &&
+  cp PATH config/gcp-sa.json
 ```
 
-`cp` keeps the mode of a destination that already existed, hence the `chmod`. Inside a git repository, make sure the destination is ignored first (`git check-ignore -q config/gcp-sa.json` succeeds), and never stage it.
+As for `.env`: the first line goes on only outside a git repository or when git ignores the destination, and the second makes the destination private before any byte is copied, whether it is new or was there already. `cp` then replaces its content. Never stage it.
 
 **On stdin**, to a tool that reads its secret there:
 
@@ -125,7 +127,7 @@ ssh HOST 'umask 077; mkdir -p ~/.config/app && touch ~/.config/app/token && chmo
 | `… deleted when the plugin restarted, …` | As above: the plugin restarted | The same |
 | `… deleted when the plugin stopped, …` | As above: the plugin stopped | The same |
 | `… deleted by the user, …` | As above: the user deleted every file in the plugin's settings | Ask the user before you ask again |
-| `… was rejected before any file was written (code). …` | Nothing was written | If it ends `Fix the cause and make a new request.`, do that. If it ends `Tell the user what happened. Do not make a new request yourself; …`, tell the user and stop |
+| `… was rejected` | No paths were delivered. A failed write can leave temporary files in the plugin's data directory, which the plugin keeps trying to remove and the settings screen reports | If it ends `Fix the cause and make a new request.`, do that. If it ends `Tell the user what happened. Do not make a new request yourself; …`, tell the user and stop |
 | `…: the user declined to provide the values.` | The user said no | Ask how they want to proceed; do not rephrase and retry |
 | `… expired before the user answered.` | Nobody answered in 8 hours | Ask again if the values are still needed |
 | `… expired when the plugin restarted. Nothing was delivered.` | The plugin restarted before the user submitted | Ask again if the values are still needed |
