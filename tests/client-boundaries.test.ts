@@ -1,6 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
-import ts from "typescript";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -228,18 +228,25 @@ describe("the settings screen", () => {
   });
 });
 
-/** The files of a TypeScript project: the roots its config names, and every file the program reads for them, relative to the root. */
+/**
+ * The files of a TypeScript project as the project's own `tsc` lists them: the roots its config names (`--showConfig`),
+ * and every file the program reads for them (`--listFilesOnly`), relative to the root. TypeScript 7 has no compiler API
+ * in JavaScript, so the test asks the compiler itself.
+ */
 function projectOf(config: string): { roots: string[]; files: string[] } {
-  const parsed = ts.getParsedCommandLineOfConfigFile(join(ROOT, config), {}, {
-    ...ts.sys,
-    onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-      throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
-    },
-  });
-  if (parsed === undefined) throw new Error(`${config} cannot be read`);
-  const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options });
-  const local = (path: string): string => relative(ROOT, path);
-  return { roots: parsed.fileNames.map(local), files: program.getSourceFiles().map((file) => local(file.fileName)) };
+  const tsc = (flag: string): string =>
+    execFileSync(join(ROOT, "node_modules", ".bin", "tsc"), ["-p", join(ROOT, config), flag], {
+      cwd: ROOT,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  const shown = JSON.parse(tsc("--showConfig")) as { files?: unknown };
+  if (!Array.isArray(shown.files)) throw new Error(`${config} names no files`);
+  const local = (path: string): string => relative(ROOT, resolve(ROOT, path));
+  return {
+    roots: shown.files.map((file) => local(String(file))),
+    files: tsc("--listFilesOnly").split(/\r?\n/).filter((line) => line !== "").map(local),
+  };
 }
 
 describe("the TypeScript projects", () => {

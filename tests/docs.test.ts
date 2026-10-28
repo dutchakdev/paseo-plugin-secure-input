@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import ts from "typescript";
+// The parser of TypeScript 5: TypeScript 7, which type-checks the project, has no stable JavaScript API.
+import ts from "typescript-5";
 import { describe, expect, it } from "vitest";
 import { addRow, type FormRow, type FormState } from "../client/form-state";
 import { continuationText, shellPath, tamperText } from "../server/core/continuation";

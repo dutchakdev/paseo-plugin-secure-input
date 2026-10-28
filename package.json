@@ -43,16 +43,17 @@
     "@getpaseo/plugin": "0.14.0-beta.1",
     "@getpaseo/protocol": "0.14.0-beta.1",
     "@getpaseo/relay": "0.14.0-beta.1",
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "@tanstack/react-query": "^5.90.11",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@tanstack/react-query": "^5.105.0",
     "@types/node": "^22.0.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "semver": "7.8.5",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.11",
-    "zod": "^4.4.3"
+    "typescript": "^7.0.2",
+    "typescript-5": "npm:typescript@5.9.3",
+    "vitest": "^5.0.5",
+    "zod": "^4.6.7"
   },
   "files": [
     "paseo-plugin.json",
