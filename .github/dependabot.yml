@@ -18,6 +18,10 @@ updates:
       # catches an API that Node lacks.
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      # TypeScript 5 stays as the parser tests/docs.test.ts reads source with: TypeScript 7 has
+      # no stable JavaScript API.
+      - dependency-name: typescript-5
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     # `/` covers the workflows only; the composite action needs its own entry.
     directories: ['/', '/.github/actions/*']
