@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- After a daemon restart, the plugin reaches the agents again as soon as the app reconnects. Paseo 0.15 no longer sets a plugin up again on a reconnect, so a waiting message or pill stayed unsent until an agent next started, ended a turn or opened a session.
+
 ## 0.2.1 - 2026-10-28
 
 ### Changed

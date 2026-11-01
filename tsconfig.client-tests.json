@@ -6,6 +6,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "types": ["node"] },
   "include": [
+    "tests/attach.test.ts",
     "tests/codes.test.ts",
     "tests/diagnostics-rows.test.ts",
     "tests/dialog-state.test.ts",

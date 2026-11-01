@@ -1,4 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { keepDaemonHalfAttached } from "./client/attach";
 import { RequestCard } from "./client/card";
 import { SettingsScreen } from "./client/settings";
 import { CARD_KIND, CARD_VERSION, CardDataSchema } from "./shared/card";
@@ -14,15 +15,18 @@ export default function contribute(client: PluginClientContext) {
   const removeSettings = client.addSettingsScreen({ id: "main", title: "Secure input", icon: "ShieldCheck", Component: SettingsScreen });
 
   // The daemon half only receives its API handle inside a hook or an RPC. One
-  // harmless call when the app loads lets it publish cards that were waiting.
+  // harmless call lets it publish cards that were waiting.
   // A call that throws on the spot must not fail the whole contribution.
-  try {
-    void client.rpc(readDiagnostics, {}).catch(() => undefined);
-  } catch {
-    // nothing to do: the cards are published the next time the plugin is asked for anything
-  }
+  const stopAttaching = keepDaemonHalfAttached(client.paseo, () => {
+    try {
+      void client.rpc(readDiagnostics, {}).catch(() => undefined);
+    } catch {
+      // nothing to do: the cards are published the next time the plugin is asked for anything
+    }
+  });
 
   return () => {
+    stopAttaching();
     removeRenderer();
     removeSettings();
   };

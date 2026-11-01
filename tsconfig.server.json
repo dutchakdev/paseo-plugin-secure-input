@@ -6,6 +6,7 @@
   "compilerOptions": { "types": ["node"] },
   "include": ["index.server.ts", "server/**/*", "shared/**/*", "tests/**/*"],
   "exclude": [
+    "tests/attach.test.ts",
     "tests/codes.test.ts",
     "tests/diagnostics-rows.test.ts",
     "tests/dialog-state.test.ts",
