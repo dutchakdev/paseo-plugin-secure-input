@@ -18,20 +18,28 @@ const inspect = (overrides: Record<string, unknown>) =>
   inspectPackage({ files, manifest: sourceManifest, overview: read("OVERVIEW.md"), sourceManifest, packageJson, shrinkwrap, ...overrides });
 
 describe("packed tarball", () => {
-  it("compares packed files with the source as bytes, except the generated shrinkwrap", () => {
+  it("compares packed files with the source as bytes, and package.json and the shrinkwrap as JSON", () => {
+    const lock = (pkg: string) => ({ packages: { "node_modules/x": { version: "1.0.0", resolved: `https://registry.npmjs.org/${pkg}/-/${pkg}-1.0.0.tgz` } } });
     const source: Record<string, Buffer> = {
       "server/paseo/plugin.ts": Buffer.from("source"),
       "assets/icon.png": Buffer.from([0xff, 0x00]),
       "package.json": Buffer.from('{"name":"test","version":"1"}'),
-      "npm-shrinkwrap.json": Buffer.from("source shrinkwrap"),
+      "npm-shrinkwrap.json": Buffer.from(JSON.stringify(lock("x"))),
     };
-    const packed = { ...source, "package.json": Buffer.from('{ "version": "1", "name": "test" }'), "npm-shrinkwrap.json": Buffer.from("packed shrinkwrap") };
+    const packed = {
+      ...source,
+      "package.json": Buffer.from('{ "version": "1", "name": "test" }'),
+      "npm-shrinkwrap.json": Buffer.from(`${JSON.stringify(lock("x"), null, 2)}\n`),
+    };
     const compare = (contents: Record<string, Buffer>) => compareFiles(Object.keys(contents), (file: string) => contents[file], (file: string) => source[file]);
     expect(compare(packed)).toEqual([]);
     expect(compare({ ...packed, "server/paseo/plugin.ts": Buffer.from("changed") })).toEqual(["server/paseo/plugin.ts differs from the source"]);
     expect(compare({ ...packed, "assets/icon.png": Buffer.from([0xfe, 0x00]) })).toEqual(["assets/icon.png differs from the source"]);
     expect(compare({ ...packed, "server/extra.ts": Buffer.from("extra") })).toEqual(["server/extra.ts differs from the source"]);
     expect(compare({ ...packed, "package.json": Buffer.from('{"name":"changed"}') })).toEqual(["package.json differs from the source"]);
+    expect(compare({ ...packed, "package.json": Buffer.from("not json") })).toEqual(["package.json differs from the source"]);
+    // The same version from another place: what the version and prefix checks of the shrinkwrap let through.
+    expect(compare({ ...packed, "npm-shrinkwrap.json": Buffer.from(JSON.stringify(lock("y"))) })).toEqual(["npm-shrinkwrap.json differs from the source"]);
   });
 
   it("accepts the repository's own manifest, overview and shrinkwrap", () => {

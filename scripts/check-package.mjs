@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { inspectShrinkwrap } from "./shrinkwrap.mjs";
+import { inspectShrinkwrap, productionShrinkwrap } from "./shrinkwrap.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -31,21 +31,51 @@ export function inspectPackage({ files, manifest, overview, sourceManifest, pack
   return problems;
 }
 
+// npm may rewrite the form of `package.json`, and `prepack` writes the shrinkwrap: both are compared as parsed JSON.
+const AS_JSON = new Set(["package.json", "npm-shrinkwrap.json"]);
+
+function sameJson(packed, source) {
+  try {
+    return isDeepStrictEqual(JSON.parse(packed), JSON.parse(source));
+  } catch {
+    return false;
+  }
+}
+
 /**
- * The packed files that are not what the checkout holds, byte for byte. npm writes the shrinkwrap at pack time, and
- * `inspectShrinkwrap` holds it to the lockfile; `package.json` is compared as JSON, since npm may rewrite its form.
+ * The packed files that are not what the source holds: byte for byte, or as JSON for the two files npm and `prepack`
+ * write. A file with no source differs.
  */
 export function compareFiles(files, readPacked, readSource) {
   const problems = [];
   for (const file of files) {
-    if (file === "npm-shrinkwrap.json") continue;
     const packed = readPacked(file);
     const source = readSource(file);
-    if (!source || (file === "package.json" ? !isDeepStrictEqual(JSON.parse(packed), JSON.parse(source)) : !packed.equals(source))) {
-      problems.push(`${file} differs from the source`);
-    }
+    if (!source || (AS_JSON.has(file) ? !sameJson(packed, source) : !packed.equals(source))) problems.push(`${file} differs from the source`);
   }
   return problems;
+}
+
+/**
+ * The source of a packed file is the commit checked out, read from Git, and not the working tree: a pack step that
+ * rewrites a file in the checkout as well as in the tarball is caught. The shrinkwrap's source is what
+ * `productionShrinkwrap` makes of that commit's lockfile and manifest, so a changed `resolved` or `integrity` is caught too.
+ */
+function committed(file) {
+  try {
+    return execFileSync("git", ["-C", root, "show", `HEAD:${file}`], { maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return undefined;
+  }
+}
+
+function committedShrinkwrap() {
+  try {
+    const json = (file) => JSON.parse(committed(file)?.toString("utf8") ?? "null");
+    return Buffer.from(JSON.stringify(productionShrinkwrap(json("package-lock.json"), json("package.json"))));
+  } catch {
+    return undefined;
+  }
 }
 
 function tar(tarball, ...args) {
@@ -71,7 +101,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   problems.push(...compareFiles(
     files.filter((file) => file && !file.endsWith("/")),
     (file) => execFileSync("tar", ["-xOzf", tarball, `package/${file}`], { maxBuffer: 64 * 1024 * 1024 }),
-    (file) => (statSync(join(root, file), { throwIfNoEntry: false })?.isFile() ? readFileSync(join(root, file)) : undefined),
+    (file) => (file === "npm-shrinkwrap.json" ? committedShrinkwrap() : committed(file)),
   ));
   if (problems.length) {
     console.error(`${tarball}:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
