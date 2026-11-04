@@ -802,7 +802,8 @@ export class Registry {
    * A turn of the agent ended, with whatever outcome. The requests of that agent that are armed are taken now, as the
    * turn ends, and their sets are released in the queue as `turn` (as whoever took it, `takenBy`, for a set that is gone
    * by then), each that is still delivered. Taken now, and not when the queue comes to it: a request armed while this
-   * waits in the queue was armed by a turn that began after this one, and its set is that turn's. A set that is stuck
+   * waits in the queue was armed by a turn that began after this one, and its set is that turn's; a set whose send was
+   * refused meanwhile has lost its mark and stays (`messageSendFailed`). A set that is stuck
    * keeps its mark, and the end of the next turn tries again. Once shutdown has begun no further set is released here
    * (the stop takes them); a removal that was already under way then reads a set its sweep took as the stop's.
    */
@@ -813,7 +814,8 @@ export class Registry {
         // For each request, as the tick does: the stop can begin while one of them is removed.
         if (this.stopped) return;
         const record = this.records.get(id);
-        if (record?.state === "delivered") await this.releaseSet(record, "turn");
+        // A send refused while this waited took the mark away (`messageSendFailed`): the agent was never told of the set.
+        if (record?.state === "delivered" && this.turns.get(id) === "armed") await this.releaseSet(record, "turn");
       }
     });
   }

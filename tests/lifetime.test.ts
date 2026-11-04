@@ -244,6 +244,35 @@ describe("the end of the turn the message started", () => {
 });
 
 describe("the end of the turn the message started, while the queue is busy", () => {
+  it("keeps a set whose send was refused while the end of the turn that armed it waited in the queue", async () => {
+    // The message is handed over, and while its send is still out a turn starts and ends; its release waits in the queue.
+    const h = harness();
+    const id = await deliverOne(h, "agent-1");
+    h.registry.messageSent(id);
+    h.registry.turnStarted("agent-1");
+    const stuck = gate();
+    try {
+      const other = (await h.registry.create(agent("agent-2"), asking)).requestId;
+      let reached = false;
+      h.drop.onWrite = () => {
+        reached = true;
+        return stuck.held;
+      };
+      const written = h.registry.fulfill(other, sealed(h.registry, other, [{ key: "API_KEY", value: `${CANARY}-other` }]));
+      await vi.waitFor(() => expect(reached).toBe(true), { timeout: 5000 });
+      const ended = h.registry.turnEnded("agent-1");
+      // The send is refused before the queue comes to that release: the agent was never told of the set.
+      h.registry.messageSendFailed(id);
+      stuck.open();
+      expect(await written).toEqual({ ok: true, state: "delivered" });
+      await ended;
+      expect(h.registry.get(id)?.state).toBe("delivered");
+      expect(existsSync(setPath(h.dropRoot, id))).toBe(true);
+    } finally {
+      stuck.open();
+    }
+  });
+
   it("takes at a turn's end only the sets armed when it ended, however long it waits in the queue", async () => {
     // The setup: R1's message started t-1. R2 is delivered meanwhile, and its message waits.
     const h = harness();
