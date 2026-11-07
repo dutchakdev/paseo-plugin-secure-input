@@ -57,7 +57,7 @@
     <rect x="18" y="18" width="30" height="30" rx="9" fill="#2a2440"/>
     <path d="M33 25 l8 3.4 v6.6 c0 5 -3.4 8.4 -8 10.1 c-4.6 -1.7 -8 -5.1 -8 -10.1 v-6.6 z" fill="none" stroke="#b9a6ff" stroke-width="1.8" stroke-linejoin="round"/>
     <path d="M29.6 35.2 l2.4 2.4 l4.2 -4.8" fill="none" stroke="#b9a6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="58" y="39" fill="#eef0f3" font-size="14" font-weight="650" font-family="system-ui, -apple-system, sans-serif">Секрети для агента</text>
+    <text x="58" y="39" fill="#eef0f3" font-size="14" font-weight="650" font-family="system-ui, -apple-system, sans-serif">Secrets for the agent</text>
     <path d="M320 28 l9 9 M329 28 l-9 9" stroke="#6f727c" stroke-width="1.8" stroke-linecap="round"/>
     <rect x="58" y="47" width="158" height="17" rx="5" fill="#211d33"/>
     <text x="65" y="59" fill="#8f84c9" font-size="9.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">X25519 · ChaCha20-Poly1305</text>

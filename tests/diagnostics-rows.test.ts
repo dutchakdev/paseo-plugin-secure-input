@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { describeCode } from "../client/codes";
-import { DELETE_ALL, SETTINGS_BADGE, canDeleteAll, clockTime, dotColor, statusRows, type StatusRow } from "../client/diagnostics-rows";
+import { SETTINGS_BADGE, canDeleteAll, clockTime, dotColor, statusRows, type StatusRow } from "../client/diagnostics-rows";
 import type { Tone } from "../client/tone";
 import { DiagnosticsSchema, type Diagnostics } from "../shared/contracts";
 import { ERROR_CODES } from "../shared/errors";
+import { translate } from "./translation-fixture";
+
+const t = translate();
 
 const healthy: Diagnostics = {
   attached: true,
@@ -26,7 +29,7 @@ type Label = StatusRow["label"];
 
 /** The row of the screen with this label. */
 function row(data: Diagnostics, label: Label): StatusRow {
-  const found = statusRows(data).find((candidate) => candidate.label === label);
+  const found = statusRows(t, data).find((candidate) => candidate.label === label);
   if (found === undefined) throw new Error(`no row ${label}`);
   return found;
 }
@@ -40,11 +43,11 @@ describe("the status rows", () => {
   });
 
   it("shows four rows in their order, all green for a healthy plugin", () => {
-    expect(statusRows(healthy)).toEqual([
-      { label: "Плагін", value: "Працює", dot: "ok", explanation: null },
-      { label: "Секрети на сервері", value: "Немає", dot: "ok", explanation: null },
-      { label: "Запити, що чекають", value: "Немає", dot: "ok", explanation: null },
-      { label: "Помилки", value: "Немає", dot: "ok", explanation: null },
+    expect(statusRows(t, healthy)).toEqual([
+      { label: "status.plugin", value: "Running", dot: "ok", explanation: null },
+      { label: "status.files", value: "None", dot: "ok", explanation: null },
+      { label: "status.pending", value: "None", dot: "ok", explanation: null },
+      { label: "status.errors", value: "None", dot: "ok", explanation: null },
     ]);
   });
 
@@ -62,21 +65,21 @@ describe("the status rows", () => {
       { ...healthy, lastHookFailure: "agent.session_open: write_failed" },
     ];
     for (const data of states) {
-      expect(statusRows(data).map((entry) => entry.label)).toEqual(["Плагін", "Секрети на сервері", "Запити, що чекають", "Помилки"]);
-      for (const entry of statusRows(data)) expect(entry.explanation !== null, `${entry.label}: ${entry.value}`).toBe(entry.dot === "bad");
+      expect(statusRows(t, data).map((entry) => entry.label)).toEqual(["status.plugin", "status.files", "status.pending", "status.errors"]);
+      for (const entry of statusRows(t, data)) expect(entry.explanation !== null, `${entry.label}: ${entry.value}`).toBe(entry.dot === "bad");
     }
   });
 
-  describe("«Плагін»", () => {
+  describe("«Plugin»", () => {
     it("works when it started, has the daemon's API and sends messages", () => {
-      expect(row(healthy, "Плагін")).toEqual({ label: "Плагін", value: "Працює", dot: "ok", explanation: null });
+      expect(row(healthy, "status.plugin")).toEqual({ label: "status.plugin", value: "Running", dot: "ok", explanation: null });
     });
 
     it("is starting while the daemon's API has not arrived or messages are held back, which is nothing to explain", () => {
-      const starting = { label: "Плагін", value: "Запускається", dot: "warn", explanation: null };
-      expect(row({ ...healthy, attached: false }, "Плагін")).toEqual(starting);
-      expect(row({ ...healthy, messagesHeld: true }, "Плагін")).toEqual(starting);
-      expect(row({ ...healthy, attached: false, messagesHeld: true }, "Плагін")).toEqual(starting);
+      const starting = { label: "status.plugin", value: "Starting", dot: "warn", explanation: null };
+      expect(row({ ...healthy, attached: false }, "status.plugin")).toEqual(starting);
+      expect(row({ ...healthy, messagesHeld: true }, "status.plugin")).toEqual(starting);
+      expect(row({ ...healthy, attached: false, messagesHeld: true }, "status.plugin")).toEqual(starting);
     });
 
     it("did not start when its start-up failed: the sentence for the code, the code, and the fixed phrase", () => {
@@ -84,51 +87,51 @@ describe("the status rows", () => {
         ...healthy,
         startup: { code: "service_unavailable", detail: "the drop directory is not a private directory of this user" },
       };
-      expect(row(failed, "Плагін")).toEqual({
-        label: "Плагін",
-        value: "Не запустився",
+      expect(row(failed, "status.plugin")).toEqual({
+        label: "status.plugin",
+        value: "Did not start",
         dot: "bad",
-        explanation: "Плагін зараз не може прийняти запит. (service_unavailable) — the drop directory is not a private directory of this user",
+        explanation: "The plugin cannot take the request right now. (service_unavailable) — the drop directory is not a private directory of this user",
       });
     });
 
     it("has a sentence for every code the plugin has, and leaves out the dash when there is no phrase to put after it", () => {
       for (const code of ERROR_CODES) {
-        expect(row({ ...healthy, startup: { code, detail: "a fixed phrase" } }, "Плагін").explanation, code).toBe(`${describeCode(code)} — a fixed phrase`);
-        expect(row({ ...healthy, startup: { code, detail: "" } }, "Плагін").explanation, code).toBe(describeCode(code));
+        expect(row({ ...healthy, startup: { code, detail: "a fixed phrase" } }, "status.plugin").explanation, code).toBe(`${describeCode(t, code)} — a fixed phrase`);
+        expect(row({ ...healthy, startup: { code, detail: "" } }, "status.plugin").explanation, code).toBe(describeCode(t, code));
       }
-      expect(row({ ...healthy, startup: { code: "write_failed", detail: "" } }, "Плагін").explanation).toBe("Файл не вдалося записати. (write_failed)");
+      expect(row({ ...healthy, startup: { code: "write_failed", detail: "" } }, "status.plugin").explanation).toBe("The file could not be written. (write_failed)");
     });
 
     it("says an unexpected failure in words of its own", () => {
       const unexpected = (detail: string): Diagnostics => ({ ...healthy, startup: { code: "unexpected", detail } });
-      expect(row(unexpected("an unexpected error stopped the start-up"), "Плагін").explanation).toBe(
-        "Непередбачена помилка. (unexpected) — an unexpected error stopped the start-up",
+      expect(row(unexpected("an unexpected error stopped the start-up"), "status.plugin").explanation).toBe(
+        "Unexpected error. (unexpected) — an unexpected error stopped the start-up",
       );
-      expect(row(unexpected(""), "Плагін")).toEqual({ label: "Плагін", value: "Не запустився", dot: "bad", explanation: "Непередбачена помилка. (unexpected)" });
+      expect(row(unexpected(""), "status.plugin")).toEqual({ label: "status.plugin", value: "Did not start", dot: "bad", explanation: "Unexpected error. (unexpected)" });
     });
 
     it("puts a failed start before the states of a start that is still going", () => {
       const both: Diagnostics = { ...healthy, attached: false, messagesHeld: true, startup: { code: "write_failed", detail: "" } };
-      expect(row(both, "Плагін")).toMatchObject({ value: "Не запустився", dot: "bad" });
+      expect(row(both, "status.plugin")).toMatchObject({ value: "Did not start", dot: "bad" });
     });
   });
 
-  describe("«Секрети на сервері»", () => {
-    const label = "Секрети на сервері";
+  describe("«Secrets on the server»", () => {
+    const label = "status.files";
 
     it("has none when no set is delivered", () => {
-      expect(row(healthy, label)).toEqual({ label, value: "Немає", dot: "ok", explanation: null });
+      expect(row(healthy, label)).toEqual({ label, value: "None", dot: "ok", explanation: null });
     });
 
     it("counts the delivered sets and says when the nearest one goes, by the clock of this machine", () => {
       expect(row(requests({ delivered: 1, nextDeleteBy: at(14, 32) }), label)).toEqual({
         label,
-        value: "1 · найближчий зникне о 14:32",
+        value: "1 · the next goes at 14:32",
         dot: "warn",
         explanation: null,
       });
-      expect(row(requests({ delivered: 12, nextDeleteBy: at(0, 7) }), label).value).toBe("12 · найближчий зникне о 00:07");
+      expect(row(requests({ delivered: 12, nextDeleteBy: at(0, 7) }), label).value).toBe("12 · the next goes at 00:07");
     });
 
     it("counts them without a time when none is known, which the contract allows", () => {
@@ -139,31 +142,31 @@ describe("the status rows", () => {
       const failing: Diagnostics = { ...registry({ drop: "failing" }), requests: { pending: 0, delivered: 3, nextDeleteBy: at(14, 32) } };
       expect(row(failing, label)).toEqual({
         label,
-        value: "3 · не все видалено",
+        value: "3 · not all deleted",
         dot: "bad",
-        explanation: "Не вдалося видалити деякі файли. Натисніть «Видалити всі файли секретів зараз» або видаліть /home/u/.paseo/secure-input/drop.",
+        explanation: "Some files could not be deleted. Press “Delete all secret files now” or delete /home/u/.paseo/secure-input/drop.",
       });
       // The directory is the one the plugin was asked about.
       expect(row({ ...failing, dataDir: "/srv/paseo data/secure-input" }, label).explanation).toBe(
-        "Не вдалося видалити деякі файли. Натисніть «Видалити всі файли секретів зараз» або видаліть /srv/paseo data/secure-input/drop.",
+        "Some files could not be deleted. Press “Delete all secret files now” or delete /srv/paseo data/secure-input/drop.",
       );
     });
 
     it("is red with none counted as well: the sweep of a start can leave what it cannot remove", () => {
-      expect(row(registry({ drop: "failing" }), label)).toMatchObject({ value: "0 · не все видалено", dot: "bad" });
+      expect(row(registry({ drop: "failing" }), label)).toMatchObject({ value: "0 · not all deleted", dot: "bad" });
     });
 
     it("names the button in the words the button has", () => {
-      expect(DELETE_ALL).toBe("Видалити всі файли секретів зараз");
-      expect(row(registry({ drop: "failing" }), label).explanation).toContain(`«${DELETE_ALL}»`);
+      expect(t("settings.deleteAll")).toBe("Delete all secret files now");
+      expect(row(registry({ drop: "failing" }), label).explanation).toContain(`“${t("settings.deleteAll")}”`);
     });
   });
 
-  describe("«Запити, що чекають»", () => {
-    const label = "Запити, що чекають";
+  describe("«Waiting requests»", () => {
+    const label = "status.pending";
 
     it("has none when nothing waits", () => {
-      expect(row(healthy, label)).toEqual({ label, value: "Немає", dot: "ok", explanation: null });
+      expect(row(healthy, label)).toEqual({ label, value: "None", dot: "ok", explanation: null });
     });
 
     it("counts them while some wait, which is a state to see and no fault", () => {
@@ -187,22 +190,22 @@ describe("the status rows", () => {
     });
   });
 
-  describe("«Помилки»", () => {
-    const label = "Помилки";
+  describe("«Errors»", () => {
+    const label = "status.errors";
 
     it("has none for a healthy plugin", () => {
-      expect(row(healthy, label)).toEqual({ label, value: "Немає", dot: "ok", explanation: null });
+      expect(row(healthy, label)).toEqual({ label, value: "None", dot: "ok", explanation: null });
     });
 
-    it("says «Є» with the sentence of what is the matter", () => {
+    it("says «Some» with the sentence of what is the matter", () => {
       const cases: Array<[string, Diagnostics, string]> = [
-        ["the registry cannot save its state", registry({ persistence: "failing" }), "Не вдається зберегти стан запитів."],
-        ["the file of requests cannot be read", registry({ stored: "unreadable" }), "Файл запитів не читається."],
-        ["the outbox cannot save its messages", outbox({ persistence: "failing" }), "Не вдається зберегти повідомлення агентам."],
-        ["a card is not on the chat", { ...healthy, cardsOwed: 3 }, "Картку не показано в чаті: 3."],
-        ["a hook failed", { ...healthy, lastHookFailure: "agent.session_open: write_failed" }, "agent.session_open: Файл не вдалося записати. (write_failed)"],
+        ["the registry cannot save its state", registry({ persistence: "failing" }), "Cannot save the state of the requests."],
+        ["the file of requests cannot be read", registry({ stored: "unreadable" }), "The requests file cannot be read."],
+        ["the outbox cannot save its messages", outbox({ persistence: "failing" }), "Cannot save the messages to agents."],
+        ["a card is not on the chat", { ...healthy, cardsOwed: 3 }, "Card not shown in the chat: 3."],
+        ["a hook failed", { ...healthy, lastHookFailure: "agent.session_open: write_failed" }, "agent.session_open: The file could not be written. (write_failed)"],
       ];
-      for (const [name, data, sentence] of cases) expect(row(data, label), name).toEqual({ label, value: "Є", dot: "bad", explanation: sentence });
+      for (const [name, data, sentence] of cases) expect(row(data, label), name).toEqual({ label, value: "Some", dot: "bad", explanation: sentence });
     });
 
     it("says the first of them when there are several, in the order of the table", () => {
@@ -228,26 +231,26 @@ describe("the status rows", () => {
       }
       sentences.push(row(data, label).explanation ?? "none");
       expect(sentences).toEqual([
-        "Не вдається зберегти стан запитів.",
-        "Файл запитів не читається.",
-        "Не вдається зберегти повідомлення агентам.",
-        "Картку не показано в чаті: 2.",
-        "agent.session_open: Файл не вдалося записати. (write_failed)",
+        "Cannot save the state of the requests.",
+        "The requests file cannot be read.",
+        "Cannot save the messages to agents.",
+        "Card not shown in the chat: 2.",
+        "agent.session_open: The file could not be written. (write_failed)",
         "none",
       ]);
-      expect(row(data, label)).toEqual({ label, value: "Немає", dot: "ok", explanation: null });
+      expect(row(data, label)).toEqual({ label, value: "None", dot: "ok", explanation: null });
     });
 
     it("says a hook that failed with the sentence of its code, also for an event handler and for an unexpected failure", () => {
       const failure = (kept: string) => row({ ...healthy, lastHookFailure: kept }, label).explanation;
-      expect(failure("agent.archived: write_failed")).toBe("agent.archived: Файл не вдалося записати. (write_failed)");
-      expect(failure("agent.session_open: unexpected")).toBe("agent.session_open: Непередбачена помилка. (unexpected)");
+      expect(failure("agent.archived: write_failed")).toBe("agent.archived: The file could not be written. (write_failed)");
+      expect(failure("agent.session_open: unexpected")).toBe("agent.session_open: Unexpected error. (unexpected)");
     });
 
     it("says a failure as it was kept when it does not have the shape of a hook and a code the plugin knows", () => {
       // A word that no hook remembers any more (v1's binding store had two) is no code either.
       for (const kept of ["agent.create: something_new", "no separator", "agent.create: constructor", ": write_failed", "agent.session_open: bindings_not_loaded"]) {
-        expect(row({ ...healthy, lastHookFailure: kept }, label), kept).toEqual({ label, value: "Є", dot: "bad", explanation: kept });
+        expect(row({ ...healthy, lastHookFailure: kept }, label), kept).toEqual({ label, value: "Some", dot: "bad", explanation: kept });
       }
     });
   });
@@ -264,8 +267,8 @@ describe("the button that deletes every file", () => {
     expect(failing.requests.delivered).toBe(0);
     expect(canDeleteAll(failing)).toBe(true);
     // The row that names the button, and the button, are there together.
-    expect(row(failing, "Секрети на сервері")).toMatchObject({ value: "0 · не все видалено", dot: "bad" });
-    expect(row(failing, "Секрети на сервері").explanation).toContain(`«${DELETE_ALL}»`);
+    expect(row(failing, "status.files")).toMatchObject({ value: "0 · not all deleted", dot: "bad" });
+    expect(row(failing, "status.files").explanation).toContain(`“${t("settings.deleteAll")}”`);
     // And when both hold.
     expect(canDeleteAll({ ...failing, requests: { pending: 0, delivered: 2, nextDeleteBy: at(9, 5) } })).toBe(true);
   });
@@ -287,7 +290,7 @@ describe("the button that deletes every file", () => {
     expect(canDeleteAll(elsewhere)).toBe(false);
   });
 
-  it("is shown exactly when the row of the secrets is not «Немає»: there are files, or files that could not be removed", () => {
+  it("is shown exactly when the row of the secrets is not «None»: there are files, or files that could not be removed", () => {
     for (const delivered of [0, 3]) {
       for (const drop of ["ok", "failing"] as const) {
         const data: Diagnostics = {
@@ -295,7 +298,7 @@ describe("the button that deletes every file", () => {
           registry: { ...healthy.registry, drop },
           requests: { pending: 0, delivered, nextDeleteBy: delivered > 0 ? at(9, 5) : null },
         };
-        expect(canDeleteAll(data), `${delivered} delivered, drop ${drop}`).toBe(row(data, "Секрети на сервері").value !== "Немає");
+        expect(canDeleteAll(data), `${delivered} delivered, drop ${drop}`).toBe(row(data, "status.files").value !== "None");
       }
     }
   });
@@ -381,7 +384,7 @@ describe("everything the diagnostics contract holds is accounted for", () => {
     for (const [name, { from, change }] of Object.entries(READ)) {
       expect(DiagnosticsSchema.safeParse(from).success, name).toBe(true);
       expect(DiagnosticsSchema.safeParse(change(from)).success, name).toBe(true);
-      expect(statusRows(change(from)), name).not.toEqual(statusRows(from));
+      expect(statusRows(t, change(from)), name).not.toEqual(statusRows(t, from));
     }
   });
 
@@ -389,7 +392,7 @@ describe("everything the diagnostics contract holds is accounted for", () => {
     for (const [name, data] of Object.entries(UNREAD)) {
       expect(DiagnosticsSchema.safeParse(data).success, name).toBe(true);
       expect(data, name).not.toEqual(healthy);
-      expect(statusRows(data), name).toEqual(statusRows(healthy));
+      expect(statusRows(t, data), name).toEqual(statusRows(t, healthy));
     }
   });
 });

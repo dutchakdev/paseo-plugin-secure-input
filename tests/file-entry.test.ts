@@ -2,23 +2,26 @@ import { describe, expect, it, vi } from "vitest";
 import { checkFile, checkedFile, encodedFile, fileLine, fromPasted, sizeText, takeFile, wipeFile, type FileCheck, type FileValue } from "../client/file-entry";
 import { toBase64Url, utf8 } from "../shared/bytes";
 import { LIMITS } from "../shared/limits";
+import { translate } from "./translation-fixture";
+
+const t = translate();
 
 const CANARY = "CANARY-9e2b-file-content";
 
 describe("the check of a file, in the app, before anything is sealed", () => {
   it("checks JSON and PEM, and the size first", () => {
-    expect(checkFile({ name: "a", bytes: utf8.encode("{nope") }, "json")).toEqual({ ok: false, message: "Це не JSON" });
+    expect(checkFile({ name: "a", bytes: utf8.encode("{nope") }, "json")).toEqual({ ok: false, message: "file.notJson" });
     expect(checkFile({ name: "k", bytes: utf8.encode("-----BEGIN PRIVATE KEY-----\r\nAAA\r\n-----END PRIVATE KEY-----\r\n") }, "pem")).toEqual({ ok: true });
-    expect(checkFile({ name: "b", bytes: new Uint8Array(128 * 1024 + 1) }, "any")).toEqual({ ok: false, message: "Не довше 128 КіБ" });
+    expect(checkFile({ name: "b", bytes: new Uint8Array(128 * 1024 + 1) }, "any")).toEqual({ ok: false, message: "form.tooLarge" });
     expect(checkFile({ name: "p12", bytes: Uint8Array.from([0x30, 0x82, 0xff]) }, "any")).toEqual({ ok: true });
   });
 
   it("takes JSON that parses, and nothing else as JSON", () => {
     const json = (content: string) => checkFile({ name: "sa.json", bytes: utf8.encode(content) }, "json");
     for (const good of ['{"type":"service_account"}', "[1, 2]", "  {}\n", "42", '"text"', "null"]) expect(json(good), good).toEqual({ ok: true });
-    for (const bad of ["", " ", "{", "{'a': 1}", "{} {}", "a: 1"]) expect(json(bad), JSON.stringify(bad)).toEqual({ ok: false, message: "Це не JSON" });
+    for (const bad of ["", " ", "{", "{'a': 1}", "{} {}", "a: 1"]) expect(json(bad), JSON.stringify(bad)).toEqual({ ok: false, message: "file.notJson" });
     // Bytes that are not UTF-8 are not JSON, however they would parse once mended.
-    expect(checkFile({ name: "x", bytes: Uint8Array.from([0x7b, 0x7d, 0xff]) }, "json")).toEqual({ ok: false, message: "Це не JSON" });
+    expect(checkFile({ name: "x", bytes: Uint8Array.from([0x7b, 0x7d, 0xff]) }, "json")).toEqual({ ok: false, message: "file.notJson" });
   });
 
   it("takes PEM that has a BEGIN line and an END line, with either line ending, and nothing short of both", () => {
@@ -34,26 +37,26 @@ describe("the check of a file, in the app, before anything is sealed", () => {
       " -----BEGIN KEY-----\nabc\n-----END KEY-----\n",
       "-----BEGIN -----\nabc\n-----END -----\n",
     ]) {
-      expect(pem(bad), JSON.stringify(bad)).toEqual({ ok: false, message: "Це не PEM" });
+      expect(pem(bad), JSON.stringify(bad)).toEqual({ ok: false, message: "file.notPem" });
     }
     // A PEM in bytes that are not UTF-8 is no PEM.
     const broken = Uint8Array.from([...utf8.encode("-----BEGIN KEY-----\n"), 0xc3, 0x28, ...utf8.encode("\n-----END KEY-----\n")]);
-    expect(checkFile({ name: "k", bytes: broken }, "pem")).toEqual({ ok: false, message: "Це не PEM" });
+    expect(checkFile({ name: "k", bytes: broken }, "pem")).toEqual({ ok: false, message: "file.notPem" });
   });
 
   it("checks nothing but the size of a file of any format, binary included", () => {
     expect(checkFile({ name: "e", bytes: new Uint8Array(0) }, "any")).toEqual({ ok: true });
     expect(checkFile({ name: "z", bytes: new Uint8Array(LIMITS.fileBytes) }, "any")).toEqual({ ok: true });
-    expect(checkFile({ name: "z", bytes: new Uint8Array(LIMITS.fileBytes + 1) }, "any")).toEqual({ ok: false, message: "Не довше 128 КіБ" });
+    expect(checkFile({ name: "z", bytes: new Uint8Array(LIMITS.fileBytes + 1) }, "any")).toEqual({ ok: false, message: "form.tooLarge" });
   });
 
   it("holds every format to the size first, at the bound the plugin itself holds a file to", () => {
     expect(LIMITS.fileBytes).toBe(128 * 1024);
     const big = utf8.encode(`[${"1,".repeat(LIMITS.fileBytes / 2)}1]`);
     expect(big.length).toBeGreaterThan(LIMITS.fileBytes);
-    expect(checkFile({ name: "big.json", bytes: big }, "json")).toEqual({ ok: false, message: "Не довше 128 КіБ" });
+    expect(checkFile({ name: "big.json", bytes: big }, "json")).toEqual({ ok: false, message: "form.tooLarge" });
     const pem = utf8.encode(`-----BEGIN KEY-----\n${"A".repeat(LIMITS.fileBytes)}\n-----END KEY-----\n`);
-    expect(checkFile({ name: "big.pem", bytes: pem }, "pem")).toEqual({ ok: false, message: "Не довше 128 КіБ" });
+    expect(checkFile({ name: "big.pem", bytes: pem }, "pem")).toEqual({ ok: false, message: "form.tooLarge" });
   });
 
   it("leaves the bytes it checks as they were, and says nothing of what they hold", () => {
@@ -72,10 +75,10 @@ describe("a file that begins with a byte order mark", () => {
     const json = Uint8Array.from([...BOM, 0x7b, 0x7d]);
     // What a reader of the file the daemon writes gets: the BOM is its first character, and JSON refuses that.
     expect(() => JSON.parse(Buffer.from(json).toString("utf8"))).toThrow(SyntaxError);
-    expect(checkFile({ name: "sa.json", bytes: json }, "json")).toEqual({ ok: false, message: "Це не JSON" });
+    expect(checkFile({ name: "sa.json", bytes: json }, "json")).toEqual({ ok: false, message: "file.notJson" });
     expect(checkFile({ name: "sa.json", bytes: json.subarray(BOM.length) }, "json")).toEqual({ ok: true });
     const pem = utf8.encode("-----BEGIN KEY-----\nAAA\n-----END KEY-----\n");
-    expect(checkFile({ name: "k.pem", bytes: Uint8Array.from([...BOM, ...pem]) }, "pem")).toEqual({ ok: false, message: "Це не PEM" });
+    expect(checkFile({ name: "k.pem", bytes: Uint8Array.from([...BOM, ...pem]) }, "pem")).toEqual({ ok: false, message: "file.notPem" });
     expect(checkFile({ name: "k.pem", bytes: pem }, "pem")).toEqual({ ok: true });
     // A file of any format is not looked into, and goes as it is, the BOM included.
     expect(checkFile({ name: "x", bytes: json }, "any")).toEqual({ ok: true });
@@ -89,7 +92,7 @@ describe("what is kept of a file while the form holds it", () => {
     const parse = vi.spyOn(JSON, "parse");
     try {
       for (let round = 0; round < 3; round++) expect(checkedFile(value, "json")).toEqual({ ok: true });
-      expect(checkedFile(value, "pem")).toEqual({ ok: false, message: "Це не PEM" });
+      expect(checkedFile(value, "pem")).toEqual({ ok: false, message: "file.notPem" });
       expect(parse.mock.calls.filter(([text]) => text === '{"a":1}')).toHaveLength(1);
     } finally {
       parse.mockRestore();
@@ -104,7 +107,7 @@ describe("what is kept of a file while the form holds it", () => {
     wipeFile(value);
     expect(value.bytes.every((byte) => byte === 0)).toBe(true);
     expect(encodedFile(value)).toBe(toBase64Url(new Uint8Array(value.bytes.length)));
-    expect(checkedFile(value, "json")).toEqual({ ok: false, message: "Це не JSON" });
+    expect(checkedFile(value, "json")).toEqual({ ok: false, message: "file.notJson" });
   });
 });
 
@@ -131,33 +134,40 @@ describe("a file the form is given", () => {
 
 describe("the line that stands for a file in its row", () => {
   it("describes a file by its name or as pasted, its size and its check, never by its content", () => {
-    expect(fileLine({ name: null, bytes: new Uint8Array(2150) }, "json", { ok: true })).toBe("вставлено · 2,1 КіБ · json ✓");
-    expect(fileLine({ name: "key.pem", bytes: new Uint8Array(900) }, "pem", { ok: false, message: "Це не PEM" })).toBe("key.pem · 900 байтів · pem ✗");
+    expect(fileLine(t, { name: null, bytes: new Uint8Array(2150) }, "json", { ok: true })).toBe("pasted · 2.1 KiB · json ✓");
+    expect(fileLine(t, { name: "key.pem", bytes: new Uint8Array(900) }, "pem", { ok: false, message: "file.notPem" })).toBe("key.pem · 900 bytes · pem ✗");
   });
 
   it("has no mark for a file of any format, which nothing checks but its size", () => {
-    expect(fileLine({ name: "cert.p12", bytes: new Uint8Array(1) }, "any", { ok: true })).toBe("cert.p12 · 1 байт");
-    expect(fileLine({ name: "big.bin", bytes: new Uint8Array(LIMITS.fileBytes + 1) }, "any", { ok: false, message: "Не довше 128 КіБ" })).toBe("big.bin · 128,0 КіБ");
+    expect(fileLine(t, { name: "cert.p12", bytes: new Uint8Array(1) }, "any", { ok: true })).toBe("cert.p12 · 1 byte");
+    expect(fileLine(t, { name: "big.bin", bytes: new Uint8Array(LIMITS.fileBytes + 1) }, "any", { ok: false, message: "form.tooLarge" })).toBe("big.bin · 128.0 KiB");
   });
 
   it("never holds a byte of the file, whatever the file holds", () => {
     const file: FileValue = { name: "sa.json", bytes: utf8.encode(`{"k":"${CANARY}"}`) };
-    for (const check of [{ ok: true }, { ok: false, message: "Це не JSON" }] as FileCheck[]) {
-      expect(fileLine(file, "json", check)).not.toContain("CANARY");
+    for (const check of [{ ok: true }, { ok: false, message: "file.notJson" }] as FileCheck[]) {
+      expect(fileLine(t, file, "json", check)).not.toContain("CANARY");
     }
-    expect(fileLine({ name: null, bytes: utf8.encode(CANARY) }, "any", { ok: true })).toBe("вставлено · 24 байти");
+    expect(fileLine(t, { name: null, bytes: utf8.encode(CANARY) }, "any", { ok: true })).toBe("pasted · 24 bytes");
   });
 
   it("shows a name the human picked without what could hide or reorder it", () => {
     const rlo = String.fromCodePoint(0x202e);
-    expect(fileLine({ name: `invoice${rlo}fdp.exe`, bytes: new Uint8Array(3) }, "any", { ok: true })).toBe("invoice fdp.exe · 3 байти");
+    expect(fileLine(t, { name: `invoice${rlo}fdp.exe`, bytes: new Uint8Array(3) }, "any", { ok: true })).toBe("invoice fdp.exe · 3 bytes");
     // A name with nothing left once it is cleaned is not shown as an empty first part.
-    expect(fileLine({ name: rlo, bytes: new Uint8Array(3) }, "any", { ok: true })).toBe("3 байти");
+    expect(fileLine(t, { name: rlo, bytes: new Uint8Array(3) }, "any", { ok: true })).toBe("3 bytes");
   });
 
-  it("says a size in bytes below a KiB, and in KiB with one decimal comma above", () => {
-    expect([0, 1, 2, 5, 21, 22, 1023].map(sizeText)).toEqual(["0 байтів", "1 байт", "2 байти", "5 байтів", "21 байт", "22 байти", "1023 байти"]);
-    expect([1024, 1075, 2150, 10_240, LIMITS.fileBytes].map(sizeText)).toEqual(["1,0 КіБ", "1,0 КіБ", "2,1 КіБ", "10,0 КіБ", "128,0 КіБ"]);
+  it("says a size in bytes below a KiB, and in KiB with one decimal above", () => {
+    expect([0, 1, 2, 5, 21, 22, 1023].map((n) => sizeText(t, n))).toEqual(["0 bytes", "1 byte", "2 bytes", "5 bytes", "21 bytes", "22 bytes", "1023 bytes"]);
+    expect([1024, 1075, 2150, 10_240, LIMITS.fileBytes].map((n) => sizeText(t, n))).toEqual(["1.0 KiB", "1.0 KiB", "2.1 KiB", "10.0 KiB", "128.0 KiB"]);
+  });
+
+  it("keeps the Ukrainian byte plurals and decimal comma", () => {
+    const uk = translate("uk");
+    expect([1, 2, 5, 22].map((n) => sizeText(uk, n))).toEqual(["1 байт", "2 байти", "5 байтів", "22 байти"]);
+    expect(sizeText(uk, 2150)).toBe("2,1 КіБ");
+    expect(sizeText(t, 2150)).toBe("2.1 KiB");
   });
 });
 
@@ -167,7 +177,7 @@ describe("pasting into a file row", () => {
     const pasted = fromPasted("-----BEGIN KEY-----\nabc\n-----END KEY-----\n");
     expect(pasted?.name).toBeNull();
     expect(checkFile(pasted!, "pem")).toEqual({ ok: true });
-    expect(checkFile(fromPasted("not json")!, "json")).toEqual({ ok: false, message: "Це не JSON" });
+    expect(checkFile(fromPasted("not json")!, "json")).toEqual({ ok: false, message: "file.notJson" });
   });
 
   it("keeps every byte that was pasted, line breaks included, and adds none", () => {
@@ -183,10 +193,10 @@ describe("pasting into a file row", () => {
     const halfJson = '{"type": "service_account", "private_key": "-----BEGIN';
     expect(() => fromPasted("")).not.toThrow();
     expect(fromPasted("")).toBeNull();
-    expect(checkFile(fromPasted(halfPem)!, "pem")).toEqual({ ok: false, message: "Це не PEM" });
-    expect(checkFile(fromPasted(halfJson)!, "json")).toEqual({ ok: false, message: "Це не JSON" });
-    expect(checkFile(fromPasted("plain words")!, "pem")).toEqual({ ok: false, message: "Це не PEM" });
-    expect(fileLine(fromPasted(halfJson)!, "json", checkFile(fromPasted(halfJson)!, "json"))).toBe("вставлено · 54 байти · json ✗");
+    expect(checkFile(fromPasted(halfPem)!, "pem")).toEqual({ ok: false, message: "file.notPem" });
+    expect(checkFile(fromPasted(halfJson)!, "json")).toEqual({ ok: false, message: "file.notJson" });
+    expect(checkFile(fromPasted("plain words")!, "pem")).toEqual({ ok: false, message: "file.notPem" });
+    expect(fileLine(t, fromPasted(halfJson)!, "json", checkFile(fromPasted(halfJson)!, "json"))).toBe("pasted · 54 bytes · json ✗");
   });
 
   it("makes the bytes of a paste and nothing else", () => {

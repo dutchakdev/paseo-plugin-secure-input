@@ -13,7 +13,7 @@ export interface DialogState {
   /** The request is closed: «→» is disabled for as long as the form is open, and what was typed stays. */
   closed: boolean;
   /** The one line at the top of the form, or none. */
-  top: string | null;
+  top: Next["top"];
 }
 
 /** A form that has just been opened: nothing read yet. */

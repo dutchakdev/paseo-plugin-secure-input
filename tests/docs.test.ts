@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import ts from "typescript-5";
 import { describe, expect, it } from "vitest";
 import { addRow, type FormRow, type FormState } from "../client/form-state";
+import { messages } from "../client/messages";
 import { continuationText, shellPath, tamperText } from "../server/core/continuation";
 import { FLUSH_BUDGET_MS, MAX_OUTBOX_AGE_MS, MAX_OUTBOX_ITEMS, OUTBOX_CLOCK_SKEW_MS, PORT_FLOOR_MS, PORT_TIMEOUT_MS } from "../server/core/outbox";
 import { ADMISSION_WAIT_MS, DROP_SWEEP_BOUND_MS, HISTORY, MAX_RETRIES, SHUTDOWN_BOUND_MS, TTL_MS, requestDigestOf } from "../server/core/registry";
@@ -256,7 +257,7 @@ describe("the names in the documents", () => {
       time: "minutes after the write",
       restart: "The plugin starts",
       stop: "The plugin stops",
-      human: "You press «Видалити всі файли секретів зараз»",
+      human: "You press «Delete all secret files now»",
     };
     expect(Object.keys(EVENT)).toEqual([...RELEASED_BY]);
     const section = sectionOf(README, "when-files-go");
@@ -425,16 +426,17 @@ describe("the skill's recipes", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// The app's strings. Everything a document quotes in «…» is something the app says: a string of a client module, with
-// an ellipsis where the app fills in a key, a count or a time.
+// The app's strings. Everything a document quotes in «…» is an English resource value, with an ellipsis where the
+// app fills in a key, a count or a time. Other languages and comments cannot keep a stale quotation passing.
 // ---------------------------------------------------------------------------------------------------------------
 
-const CLIENT_MODULES = [
-  ...readdirSync(join(ROOT, "client"))
-    .filter((name) => /\.tsx?$/.test(name) && !name.endsWith(".d.ts"))
-    .map((name) => `client/${name}`),
-  "index.client.tsx",
-];
+function valuesOf(resource: object): string[] {
+  return Object.values(resource).flatMap((value) => typeof value === "string" ? [value] : valuesOf(value));
+}
+
+function appSays(quotation: string): boolean {
+  return valuesOf(messages.resources.en).some((value) => value.replace(/{{[^}]+}}/g, "…").includes(quotation));
+}
 
 /** The quotations of a text in «…», outermost only: «Натисни «→» ще раз.» is one quotation. Throws on unbalanced marks. */
 function guillemets(file: string): string[] {
@@ -458,36 +460,32 @@ function guillemets(file: string): string[] {
 }
 
 describe("the app's words in the documents", () => {
-  it("are strings of the app, as its modules spell them or build them", () => {
-    const strings = CLIENT_MODULES.flatMap(stringsOf);
+  it("are strings of the English resource, with ellipses only where the app fills in a value", () => {
     const quoted = DOCUMENTS.flatMap((file) => guillemets(file).map((text) => [file, text] as const));
     expect(quoted.length).toBeGreaterThanOrEqual(25);
-    for (const [file, text] of quoted) expect(says(strings, text), `${file} quotes «${text}», which the app does not say`).toBe(true);
+    for (const [file, text] of quoted) expect(appSays(text), `${file} quotes «${text}», which the app does not say in English`).toBe(true);
   });
 
   it("are checked against strings, not comments: the reader finds what it should and nothing it should not", () => {
-    const strings = stringsOf("client/outcome.ts");
-    expect(strings).toContain("Плагін зараз недоступний. Натисни «→» ще раз.");
-    expect(says(strings, "Плагін зараз недоступний.")).toBe(true);
-    // «✕» is only ever in a comment of that module.
-    expect(read("client/outcome.ts")).toContain("«✕»");
-    expect(says(strings, "✕")).toBe(false);
-    expect(says(stringsOf("client/diagnostics-rows.ts"), "… · найближчий зникне о …")).toBe(true);
-    expect(says(stringsOf("client/diagnostics-rows.ts"), "… · найближче зникне о …")).toBe(false);
+    expect(valuesOf(messages.resources.en)).toContain("The plugin is not available right now. Press → again.");
+    expect(appSays("The plugin is not available right now.")).toBe(true);
+    expect(read("client/messages.ts")).toContain("English is the source");
+    expect(appSays("English is the source")).toBe(false);
+    expect(appSays("✕")).toBe(false);
+    expect(appSays("… · the next goes at …")).toBe(true);
+    expect(appSays("… · the nearest goes at …")).toBe(false);
+    expect(appSays("… · the next goes at … · not all deleted")).toBe(false);
+    expect(appSays("No longer than … KiB")).toBe(true);
+    expect(appSays("No longer than {{kib}} KiB")).toBe(false);
   });
 
-  // The README and the listing tell the reader that the app is in Ukrainian only. That holds while no string of the app
-  // is an English phrase (a word of three Latin letters or more, a space, and another word of Latin letters). The one
-  // there is, "Secure input", is the name the settings screen is listed under; the README calls the screen by it.
-  it("are in Ukrainian only, as the README and the listing say: the app spells no English phrase but the name of its settings screen", () => {
+  it("follow the app's language, as the README and the listing say, in exactly the languages the resources provide", () => {
     for (const file of [README, OVERVIEW]) {
-      expect(read(file), file).toContain("The texts of the pill, the form and the settings screen are in Ukrainian only.");
+      expect(read(file), file).toContain("The pill, the form and the settings screen follow the app's language: English, Korean or Ukrainian, and English for any other. Paseo has no Ukrainian setting yet.");
     }
-    const englishIn = (strings: readonly string[]): string[] => strings.filter((text) => /[A-Za-z]{3,} [A-Za-z]{2,}/.test(text));
-    // The check finds what it looks for, and passes what the app spells that is no phrase: a key, a style, the cipher.
-    expect(englishIn(["Show the value", "Секрет для агента", "KEY_NAME", "flex-start", "X25519 · ChaCha20-Poly1305", "вставлено · 54 байти · json ✗"])).toEqual(["Show the value"]);
-    expect(englishIn(CLIENT_MODULES.flatMap(stringsOf))).toEqual(["Secure input"]);
+    expect(Object.keys(messages.resources)).toEqual(["en", "uk", "ko"]);
     expect(read(README)).toContain("**Secure input**");
+    expect(stringsOf("index.client.tsx")).toContain("Secure input");
   });
 });
 

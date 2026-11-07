@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- The pill, the form and the settings screen follow the app's language: English and Korean, and English for any language the plugin does not have. The Ukrainian text is unchanged, and it shows once Paseo offers Ukrainian; until then an app set to another language shows English.
+
 ### Fixed
 
 - The delivery message, tool help and documentation now explain when files are deleted if a delivery joins a running turn (#25).

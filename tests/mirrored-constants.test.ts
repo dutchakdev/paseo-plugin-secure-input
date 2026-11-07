@@ -1,26 +1,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CODE_SENTENCE } from "../client/codes";
-import { afterFailedAttempts, attemptsFailed } from "../client/text";
 import { continuationText, submissionsFailed } from "../server/core/continuation";
 import { MAX_RETRIES } from "../server/core/registry";
 import { MAX_RETRIES as STORED_MAX_RETRIES, parseRecord } from "../server/core/registry-store";
 import * as limits from "../shared/limits";
 import { InputRequestSchema } from "../shared/request";
 
-// The limit on failed submissions is one number, in `shared/limits`. The registry counts to it, the app says it to
-// the human and the plugin says it to the agent, both in words. These hold the words to the number: the tables of
-// words below are the test's own, so a sentence typed in by hand again, or a number changed without its words,
-// fails here.
+// The limit on failed submissions is one number, in `shared/limits`. The registry counts to it, and the plugin says
+// it to the agent in words. The table below is the test's own, so a sentence typed in by hand or a number changed
+// without its words fails here. `messages.test.ts` holds the app's translated sentences to the same limit.
 describe("the number of failed submissions that closes a request", () => {
-  const UKRAINIAN: Record<number, { failed: string; after: string }> = {
-    1: { failed: "Одна спроба не вдалась", after: "Після однієї невдалої спроби" },
-    2: { failed: "Дві спроби не вдались", after: "Після двох невдалих спроб" },
-    3: { failed: "Три спроби не вдались", after: "Після трьох невдалих спроб" },
-    4: { failed: "Чотири спроби не вдались", after: "Після чотирьох невдалих спроб" },
-    5: { failed: "П'ять спроб не вдалось", after: "Після п'яти невдалих спроб" },
-  };
   const ENGLISH: Record<number, string> = {
     1: "One submission failed",
     2: "Two submissions failed",
@@ -60,17 +50,7 @@ describe("the number of failed submissions that closes a request", () => {
   });
 
   it("has words in this test for the number it is, so that the comparisons below compare something", () => {
-    expect(Object.hasOwn(UKRAINIAN, MAX_RETRIES)).toBe(true);
     expect(Object.hasOwn(ENGLISH, MAX_RETRIES)).toBe(true);
-  });
-
-  it("is the number the app says to the human, in each of the two sentences that say it", () => {
-    const words = UKRAINIAN[MAX_RETRIES] as { failed: string; after: string };
-    expect(CODE_SENTENCE.retry_limit.startsWith(`${words.failed}: `)).toBe(true);
-    expect(CODE_SENTENCE.decrypt_failed.endsWith(` ${words.after} запит закривається.`)).toBe(true);
-    // No other sentence states a number of attempts.
-    expect(attemptsFailed(MAX_RETRIES)).toBe(words.failed);
-    expect(afterFailedAttempts(MAX_RETRIES)).toBe(words.after);
   });
 
   it("is the number the plugin says to the agent", () => {
@@ -79,11 +59,7 @@ describe("the number of failed submissions that closes a request", () => {
     expect(submissionsFailed(MAX_RETRIES)).toBe(ENGLISH[MAX_RETRIES]);
   });
 
-  it("makes both sentences follow the number, whatever it is", () => {
-    for (const [count, words] of Object.entries(UKRAINIAN)) {
-      expect(attemptsFailed(Number(count)), count).toBe(words.failed);
-      expect(afterFailedAttempts(Number(count)), count).toBe(words.after);
-    }
+  it("makes the agent's sentence follow the number, whatever it is", () => {
     for (const [count, words] of Object.entries(ENGLISH)) expect(submissionsFailed(Number(count)), count).toBe(words);
     expect(submissionsFailed(12)).toBe("12 submissions failed");
   });
