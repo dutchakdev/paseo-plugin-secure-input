@@ -6,7 +6,7 @@ secure-input lets an agent ask you for a password, an API key, a token or a whol
 - **The form**: a hidden row for each key, with an eye to show the value, and rows of your own for keys the agent did not name. A file row takes a whole file of up to 128 KiB, binary included: picked or dropped on the desktop, pasted on the desktop and on the phone. ✕ declines the request.
 - **The Secure input settings screen**: a check that seals the largest submission one request can carry on this device and has the plugin open it, the plugin's state, and a button that deletes every set of files at once.
 
-The texts of the pill, the form and the settings screen are in Ukrainian only.
+The pill, the form and the settings screen follow the app's language: English, Korean or Ukrainian, and English for any other. Paseo has no Ukrainian setting yet.
 
 ## What the agent sees
 

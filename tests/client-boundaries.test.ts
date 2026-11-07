@@ -153,7 +153,7 @@ describe("the boundary of the DOM in the app", () => {
     const card = readFileSync(join(ROOT, "client", "card.tsx"), "utf8");
     expect(card).toContain("height: PILL_HEIGHT");
     expect(card).toContain("borderRadius: PILL_HEIGHT / 2");
-    expect(card).toMatch(/pill\(item\.data\)/);
+    expect(card).toMatch(/pill\(t, item\.data\)/);
     expect(card).not.toMatch(/minHeight|maxHeight|onLayout/);
     // Of the form's modules it mounts the form, and takes the font of keys from the rows; nothing that holds or decides anything.
     expect(card).not.toMatch(/from "\.\/(form-state|dialog-state|submit|outcome|file-entry|envelope-cache|sealing|web)"/);
@@ -218,12 +218,12 @@ describe("the settings screen", () => {
   });
 
   it("shows the button that deletes every file only by the rule that says when: a set is delivered, or the drop is failing", () => {
-    expect(code).toMatch(/\{data !== undefined && canDeleteAll\(data\) \? <DeleteAll refresh=\{\(\) => query\.refetch\(\)\} \/> : null\}/);
+    expect(code).toMatch(/\{data !== undefined && canDeleteAll\(data\) \? <DeleteAll t=\{t\} refresh=\{\(\) => query\.refetch\(\)\} \/> : null\}/);
     expect(code.match(/<DeleteAll\b/g)).toHaveLength(1);
   });
 
   it("puts the explanation of a row where only a red row has one, and colours a dot from the theme", () => {
-    expect(code).toContain("<SettingsRow key={row.label} label={row.label} error={row.explanation}>");
+    expect(code).toContain("<SettingsRow key={row.label} label={t(row.label)} error={row.explanation}>");
     expect(code).toContain("backgroundColor: dotColor(row.dot, colors)");
   });
 });

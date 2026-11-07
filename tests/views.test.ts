@@ -1,19 +1,20 @@
+import { PluginTranslationProvider, PluginTranslationRuntime } from "@getpaseo/plugin/client/host";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RequestCard } from "../client/card";
 import { RequestDialog } from "../client/dialog";
-import { DELETE_FAILED } from "../client/diagnostics-rows";
 import type { FileValue } from "../client/file-entry";
 import { FileRow, IconButton, RowLine, TextRow } from "../client/fields";
 import type { FormRow } from "../client/form-state";
-import { A11Y, eye } from "../client/presentation";
-import { SELF_TEST_RUNNING } from "../client/self-test";
+import { eye } from "../client/presentation";
 import { SettingsScreen } from "../client/settings";
 import type { Tone } from "../client/tone";
 import type { Diagnostics } from "../shared/contracts";
 import { toBase64Url, utf8 } from "../shared/bytes";
 import { generateRequestKeyPair } from "../shared/seal";
 import type { RequestView } from "../shared/view";
-import { elements, find, findAll, mount } from "./react-fake";
+import { elements, find, findAll, mount as mountView } from "./react-fake";
 import { REQUEST_ID, file, text, viewOf } from "./view-fixtures";
+import { translate } from "./translation-fixture";
 
 // The views of the form and of the settings screen, drawn by the test runtime of React's hooks (`react-fake`): what
 // each control tells a screen reader, and what becomes of a file the form is given at each moment. The host's UI, the
@@ -23,7 +24,7 @@ const platform = vi.hoisted(() => ({ OS: "web" as string, select: (choices: Reco
 const rpc = vi.hoisted(() => new Map<string, (input: unknown) => Promise<unknown>>());
 const query = vi.hoisted(() => ({ current: { data: undefined as unknown, isError: false, refetch: async () => undefined as unknown } }));
 const modal = vi.hoisted(() => Object.assign(() => null, { Content: "Modal.Content" }));
-vi.mock("react", async () => (await import("./react-fake")).hooks);
+vi.mock("react", async (original) => ({ ...await original<typeof import("react")>(), ...(await import("./react-fake")).hooks }));
 vi.mock("react-native", () => ({ Platform: platform, View: "View", Text: "Text", Pressable: "Pressable", ActivityIndicator: "ActivityIndicator" }));
 vi.mock("@getpaseo/plugin/client/ui", () => ({
   Icon: "Icon",
@@ -34,7 +35,8 @@ vi.mock("@getpaseo/plugin/client/ui", () => ({
   SettingsRow: "SettingsRow",
   SettingsSection: "SettingsSection",
 }));
-vi.mock("@getpaseo/plugin/client", () => ({
+vi.mock("@getpaseo/plugin/client", async (original) => ({
+  ...await original<typeof import("@getpaseo/plugin/client")>(),
   useRpc: (contract: { name: string }) => (input: unknown) => {
     const call = rpc.get(contract.name);
     if (call === undefined) throw new Error(`no stand-in for ${contract.name}`);
@@ -48,6 +50,14 @@ afterEach(() => {
   platform.OS = "web";
   vi.unstubAllGlobals();
 });
+
+const t = translate();
+
+/** Each view runs inside the SDK's translation provider, as it does in the app. */
+function mount<P>(component: (props: P) => unknown, props: P, locale = "en") {
+  const runtime = new PluginTranslationRuntime({ getLocale: () => locale, subscribe: () => () => undefined });
+  return mountView(component, props, (children) => PluginTranslationProvider({ runtime, children }));
+}
 
 const COLORS: Tone = { surface: "s", raised: "r", text: "t", muted: "m", accent: "a", onAccent: "o", border: "b", success: "g", warning: "w", danger: "d" };
 const THEME = {
@@ -122,7 +132,7 @@ describe("a file row", () => {
       },
     });
     const gone = mountedFileRow();
-    (find(gone.row.tree, IconButton, { label: A11Y.pick }).props.onPress as () => void)();
+    (find(gone.row.tree, IconButton, { label: t("a11y.pick") }).props.onPress as () => void)();
     const buffer = utf8.encode("CANARY-picked-as-the-row-went").buffer;
     const input = inputs[0] as (typeof inputs)[number];
     input.files = { item: () => ({ name: "late.json", slice: () => ({ arrayBuffer: async () => buffer }) }) };
@@ -134,11 +144,11 @@ describe("a file row", () => {
 
   it("opens the paste area under the row, labelled for a screen reader, and what was pasted becomes the file when it loses focus", async () => {
     const { row, taken } = mountedFileRow({ hint: "The service account JSON" });
-    (find(row.tree, IconButton, { label: A11Y.paste }).props.onPress as () => void)();
+    (find(row.tree, IconButton, { label: t("a11y.paste") }).props.onPress as () => void)();
     row.render();
-    expect(A11Y.pasteArea).toBe("Вміст файлу");
+    expect(t("a11y.pasteArea")).toBe("File contents");
     const area = find(row.tree, "TextInput", { multiline: true });
-    expect([area.props.accessibilityLabel, area.props.accessibilityHint]).toEqual([A11Y.pasteArea, "The service account JSON"]);
+    expect([area.props.accessibilityLabel, area.props.accessibilityHint]).toEqual([t("a11y.pasteArea"), "The service account JSON"]);
     (area.props.onChangeText as (text: string) => void)('{"pasted":1}');
     row.render();
     (find(row.tree, "TextInput", { multiline: true }).props.onBlur as () => void)();
@@ -151,13 +161,13 @@ describe("a file row", () => {
     const hint = "The service account JSON";
     const empty = mount(FileRow, { row: fileRow(), hint, error: null, colors: COLORS, locked: false, onName: nothing, onFile: nothing, onClearFile: nothing, onRemove: nothing });
     expect(findAll(empty.tree, IconButton).map((button) => [button.props.label, button.props.hint])).toEqual([
-      [A11Y.pick, hint],
-      [A11Y.paste, hint],
+      [t("a11y.pick"), hint],
+      [t("a11y.paste"), hint],
     ]);
     const filled = mount(FileRow, { row: fileRow(fileOf("{}")), hint, error: null, colors: COLORS, locked: false, onName: nothing, onFile: nothing, onClearFile: nothing, onRemove: nothing });
-    expect(findAll(filled.tree, IconButton).map((button) => [button.props.label, button.props.hint])).toEqual([[A11Y.removeFile, hint]]);
+    expect(findAll(filled.tree, IconButton).map((button) => [button.props.label, button.props.hint])).toEqual([[t("a11y.removeFile"), hint]]);
     // A button reads the hint as its accessibility hint; an empty one is none.
-    const press = (props: Record<string, unknown>) => find(mount(IconButton, { icon: "X", label: "Прибрати файл", color: "m", onPress: nothing, ...props }).tree, "Pressable");
+    const press = (props: Record<string, unknown>) => find(mount(IconButton, { icon: "X", label: "Remove the file", color: "m", onPress: nothing, ...props }).tree, "Pressable");
     expect(press({ hint }).props.accessibilityHint).toBe(hint);
     expect(press({ hint: "" }).props.accessibilityHint).toBeUndefined();
     expect(press({}).props.accessibilityHint).toBeUndefined();
@@ -169,7 +179,7 @@ describe("a text row", () => {
   const props = { hint: "", error: null, colors: COLORS, onText: nothing, onName: nothing, onToFile: nothing, onRemove: nothing };
 
   it("keeps the eye from being pressed while the form is locked, as every other control of the row", () => {
-    const look = eye(false);
+    const look = eye(t, false);
     for (const locked of [false, true]) {
       const drawnRow = mount(TextRow, { ...props, row: row(false), locked });
       expect(find(drawnRow.tree, IconButton, { label: look.label }).props.disabled, String(locked)).toBe(locked);
@@ -181,21 +191,21 @@ describe("a text row", () => {
     const drawnRow = mount(TextRow, { ...props, row: row(false), locked: false });
     const name = elements(drawnRow.tree).find((element) => typeof element.type === "function" && element.type.name === "NameInput");
     if (name === undefined) throw new Error("no name input");
-    expect(A11Y.name).toBe("Назва ключа");
-    expect(find(drawn(name), "TextInput").props.accessibilityLabel).toBe(A11Y.name);
+    expect(t("a11y.name")).toBe("Key name");
+    expect(find(drawn(name), "TextInput").props.accessibilityLabel).toBe(t("a11y.name"));
   });
 });
 
 describe("the lines that say what is wrong", () => {
   it("are told to a screen reader as they appear: the line under a row, and the line at the top of the form", async () => {
-    const line = find(drawn(find(mount(TextRow, { row: { id: "row:1", key: "1A", declared: false, optional: false, format: "any", value: { kind: "text", text: "v" } }, hint: "", error: "Лише A–Z, 0–9, _", colors: COLORS, locked: false, onText: nothing, onName: nothing, onToFile: nothing, onRemove: nothing }).tree, RowLine) as never), "Text");
-    expect([line.props.accessibilityRole, line.props.accessibilityLiveRegion, line.props.children]).toEqual(["alert", "polite", "Лише A–Z, 0–9, _"]);
+    const line = find(drawn(find(mount(TextRow, { row: { id: "row:1", key: "1A", declared: false, optional: false, format: "any", value: { kind: "text", text: "v" } }, hint: "", error: "Only A–Z, 0–9, _", colors: COLORS, locked: false, onText: nothing, onName: nothing, onToFile: nothing, onRemove: nothing }).tree, RowLine) as never), "Text");
+    expect([line.props.accessibilityRole, line.props.accessibilityLiveRegion, line.props.children]).toEqual(["alert", "polite", "Only A–Z, 0–9, _"]);
 
     // A reading that fails: the form says so at its top.
     rpc.set("secure-input.request.get", async () => Promise.reject(new Error("unreachable")));
     const dialog = mount(RequestDialog, { ...HOST, requestId: REQUEST_ID, session: 1, onClose: nothing } as never);
     await dialog.settle();
-    const top = findAll(dialog.tree, "Text").find((element) => element.props.children === "Плагін зараз недоступний. Натисни «→» ще раз.");
+    const top = findAll(dialog.tree, "Text").find((element) => element.props.children === "The plugin is not available right now. Press → again.");
     expect([top?.props.accessibilityRole, top?.props.accessibilityLiveRegion]).toEqual(["alert", "polite"]);
   });
 });
@@ -231,7 +241,7 @@ describe("the form", () => {
     (rowOf("SA").props.onFile as (value: FileValue) => void)(kept);
     form.render();
     expect(((rowOf("SA").props.row as FormRow).value as { file: FileValue | null }).file).toBe(kept);
-    (find(form.tree, IconButton, { label: A11Y.submit }).props.onPress as () => void)();
+    (find(form.tree, IconButton, { label: t("a11y.submit") }).props.onPress as () => void)();
     form.render();
     // The submission is under way: a file that comes now is taken by nothing.
     const during = fileOf("CANARY-given-while-sending");
@@ -262,19 +272,19 @@ describe("the form", () => {
   });
 });
 
-describe("the settings screen", () => {
-  const DATA: Diagnostics = {
-    attached: true,
-    dataDir: "/data/secure-input",
-    registry: { persistence: "ok", drop: "ok", stored: "ok", dropped: 0 },
-    outbox: { persistence: "ok", unsaved: 0, dropped: 0 },
-    requests: { pending: 0, delivered: 1, nextDeleteBy: Date.UTC(2026, 9, 28, 12, 15) },
-    startup: null,
-    cardsOwed: 0,
-    messagesHeld: false,
-    lastHookFailure: null,
-  };
+const DATA: Diagnostics = {
+  attached: true,
+  dataDir: "/data/secure-input",
+  registry: { persistence: "ok", drop: "ok", stored: "ok", dropped: 0 },
+  outbox: { persistence: "ok", unsaved: 0, dropped: 0 },
+  requests: { pending: 0, delivered: 1, nextDeleteBy: Date.UTC(2026, 9, 28, 12, 15) },
+  startup: null,
+  cardsOwed: 0,
+  messagesHeld: false,
+  lastHookFailure: null,
+};
 
+describe("the settings screen", () => {
   /** The screen, and the element of one of its parts by the part's name, mounted as its own component. */
   function part(name: string) {
     query.current = { data: DATA, isError: false, refetch: async () => DATA };
@@ -287,13 +297,13 @@ describe("the settings screen", () => {
   it("says in one fixed line that a deletion it asked for was refused, and no more once one is not", async () => {
     let refuse = true;
     rpc.set("secure-input.drop.clear", async () => (refuse ? Promise.reject(new Error("service_unavailable: the plugin is shutting down")) : { released: 1, stuck: 0 }));
-    expect(DELETE_FAILED).toBe("Не вдалося видалити");
+    expect(t("settings.deleteFailed")).toBe("Could not delete");
     const deleteAll = part("DeleteAll");
     const action = () => find(deleteAll.tree, "SettingsAction");
     expect(action().props.error ?? null).toBeNull();
     (action().props.onPress as () => void)();
     await deleteAll.settle();
-    expect(action().props.error).toBe(DELETE_FAILED);
+    expect(action().props.error).toBe(t("settings.deleteFailed"));
     expect(JSON.stringify(deleteAll.tree)).not.toContain("shutting down");
     refuse = false;
     (action().props.onPress as () => void)();
@@ -303,11 +313,72 @@ describe("the settings screen", () => {
 
   it("tells a screen reader that the self-test is running while its spinner stands in the place of the result", async () => {
     rpc.set("secure-input.selftest.begin", () => new Promise(() => undefined));
-    expect(SELF_TEST_RUNNING).toBe("Перевірка триває");
+    expect(t("selfTest.running")).toBe("Check in progress");
     const encryption = part("Encryption");
     expect(findAll(encryption.tree, "ActivityIndicator")).toEqual([]);
     (find(encryption.tree, "SettingsAction").props.onPress as () => void)();
     encryption.render();
-    expect(find(encryption.tree, "ActivityIndicator").props.accessibilityLabel).toBe(SELF_TEST_RUNNING);
+    expect(find(encryption.tree, "ActivityIndicator").props.accessibilityLabel).toBe(t("selfTest.running"));
+  });
+});
+
+describe("the app's language", () => {
+  it("draws the pill and settings through the SDK in every supported language, with English for another", () => {
+    query.current = { data: DATA, isError: false, refetch: async () => DATA };
+    const words = [
+      ["en", "Secret for the agent", "Enter the value", "Encryption", "Delete all secret files now"],
+      ["uk", "Секрет для агента", "Ввести значення", "Шифрування", "Видалити всі файли секретів зараз"],
+      ["ko", "에이전트용 시크릿", "값 입력", "암호화", "지금 모든 시크릿 파일 삭제"],
+      ["de", "Secret for the agent", "Enter the value", "Encryption", "Delete all secret files now"],
+    ] as const;
+    for (const [locale, title, enter, encryption, deleteAll] of words) {
+      const card = mount(RequestCard, { ...HOST, item: { data: { requestId: REQUEST_ID, state: "pending", tamper: false, keys: ["A"] } } } as never, locale);
+      expect(find(card.tree, "Pressable").props.accessibilityLabel, locale).toBe(enter);
+      expect(findAll(card.tree, "Text").map((text) => text.props.children), locale).toContain(title);
+      const screen = mount(SettingsScreen, HOST as never, locale);
+      const parts = elements(screen.tree).filter((element) => typeof element.type === "function" && ["Encryption", "DeleteAll"].includes(element.type.name));
+      expect(parts, locale).toHaveLength(2);
+      for (const part of parts) {
+        const tree = mount(part.type as (props: unknown) => unknown, part.props, locale).tree;
+        if ((part.type as { name: string }).name === "Encryption") expect(find(tree, "SettingsSection").props.title, locale).toBe(encryption);
+        else expect(find(tree, "SettingsAction").props.label, locale).toBe(deleteAll);
+      }
+      card.unmount();
+      screen.unmount();
+    }
+  });
+
+  it("requires the SDK's translation context", () => {
+    expect(() => mountView(RequestCard, HOST as never)).toThrow("Plugin translations must run inside a contributed plugin surface");
+  });
+
+  it("updates a held form line and a file's cached line when the language changes, without rereading or losing the file", async () => {
+    let locale = "en";
+    let changed = nothing;
+    const runtime = new PluginTranslationRuntime({
+      getLocale: () => locale,
+      subscribe: (listener) => { changed = listener; return nothing; },
+    });
+    const wrap = (children: Parameters<typeof PluginTranslationProvider>[0]["children"]) => PluginTranslationProvider({ runtime, children });
+    const get = vi.fn(async () => Promise.reject(new Error("unreachable")));
+    rpc.set("secure-input.request.get", get);
+    const dialog = mountView(RequestDialog, { ...HOST, requestId: REQUEST_ID, session: 1, onClose: nothing } as never, wrap);
+    const value = fileOf("{}");
+    const row = mountView(FileRow, { row: fileRow(value), hint: "", error: null, colors: COLORS, locked: false, onName: nothing, onFile: nothing, onClearFile: nothing, onRemove: nothing }, wrap);
+    await dialog.settle();
+    expect(findAll(dialog.tree, "Text").map((text) => text.props.children)).toContain("The plugin is not available right now. Press → again.");
+    expect(findAll(row.tree, "Text").map((text) => text.props.children)).toContain("sa.json · 2 bytes");
+    locale = "uk";
+    changed();
+    await dialog.settle();
+    await row.settle();
+    expect(find(dialog.tree, modal).props.title).toBe("Секрет для агента");
+    expect(findAll(dialog.tree, "Text").map((text) => text.props.children)).toContain("Плагін зараз недоступний. Натисни «→» ще раз.");
+    expect(findAll(row.tree, "Text").map((text) => text.props.children)).toContain("sa.json · 2 байти");
+    expect(utf8.decode(value.bytes)).toBe("{}");
+    expect(get).toHaveBeenCalledTimes(1);
+    dialog.unmount();
+    row.unmount();
+    runtime.dispose();
   });
 });

@@ -1,5 +1,5 @@
 import type { PluginHostProps } from "@getpaseo/plugin/client";
-import { useRpc } from "@getpaseo/plugin/client";
+import { useRpc, useTranslation } from "@getpaseo/plugin/client";
 import { Icon, Modal } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
@@ -12,7 +12,8 @@ import { takeFile, wipeFile, type FileValue } from "./file-entry";
 import { ANNOUNCED, FileRow, IconButton, MONO, RowLine, TextRow } from "./fields";
 import { addRow, checkForm, clearFile, fillFile, formFromView, removeRow, setName, setText, toFileRow, wipeForm, type FormState } from "./form-state";
 import { afterDecline, afterLostReply } from "./outcome";
-import { A11Y, FORM_BADGE, dialogScreen, formTitle } from "./presentation";
+import { messages } from "./messages";
+import { FORM_BADGE, dialogScreen, formTitle } from "./presentation";
 import { sealEntries } from "./sealing";
 import { submitEntries, type SubmitDeps, type SubmitOutcome } from "./submit";
 import { tone } from "./tone";
@@ -50,6 +51,7 @@ function useHeld<T>(initial: () => T): [T, { readonly current: T }, (next: T) =>
  * human, by an answer, or unmounted with its row by the chat's list), it takes no file's bytes along: they are wiped.
  */
 export function RequestDialog({ requestId, session, onClose, theme, layout }: DialogProps) {
+  const { t } = useTranslation(messages);
   const colors = tone(theme.colors);
   const get = useRpc(getRequest);
   const fulfill = useRpc(fulfillRequest);
@@ -147,7 +149,7 @@ export function RequestDialog({ requestId, session, onClose, theme, layout }: Di
   const deps: SubmitDeps = { get, fulfill, seal: sealEntries };
 
   function pressArrow() {
-    const { entries } = checkForm(formRef.current);
+    const { entries } = checkForm(t, formRef.current);
     const action = arrowAction(stateRef.current, entries !== null);
     if (action === "read") {
       void run("arrow", async () => {
@@ -198,14 +200,14 @@ export function RequestDialog({ requestId, session, onClose, theme, layout }: Di
   // A file dropped on the form but not on a file row is taken by nothing, and goes nowhere else either.
   useFileDrop(body, wipeFile);
 
-  const checked = useMemo(() => checkForm(form), [form]);
+  const checked = useMemo(() => checkForm(t, form), [t, form]);
   const labels = useMemo(() => new Map((state.view?.fields ?? []).map((field) => [field.key, field.label] as const)), [state.view]);
   const screen = dialogScreen(state);
   const locked = busy !== null;
   const arrowReady = busy === null && arrowAction(state, checked.entries !== null) !== null;
 
   return (
-    <Modal title={formTitle(form.rows.length)} icon={<Icon name="ShieldCheck" size={18} color={colors.accent} />} open onOpenChange={(open) => (open ? undefined : close())}>
+    <Modal title={formTitle(t, form.rows.length)} icon={<Icon name="ShieldCheck" size={18} color={colors.accent} />} open onOpenChange={(open) => (open ? undefined : close())}>
       {/* The host's own scrolling body: the sheet on a phone, with its swipe down and its keyboard handling, and on the desktop a box no taller than the form. */}
       <Modal.Content contentContainerStyle={{ padding: layout.compact ? 16 : 20, gap: 0 }}>
         <View ref={body} style={{ gap: 8 }}>
@@ -214,14 +216,14 @@ export function RequestDialog({ requestId, session, onClose, theme, layout }: Di
               <Text style={{ color: colors.accent, fontFamily: MONO, fontSize: 11 }}>{FORM_BADGE}</Text>
             </View>
             <View style={{ flex: 1 }} />
-            <IconButton icon="X" label={A11Y.decline} color={colors.muted} disabled={locked} onPress={pressDecline} />
+            <IconButton icon="X" label={t("a11y.decline")} color={colors.muted} disabled={locked} onPress={pressDecline} />
           </View>
 
           {state.top === null ? null : (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Icon name="CircleAlert" size={14} color={colors.danger} />
               <Text {...ANNOUNCED} style={{ color: colors.danger, fontSize: 12, flexShrink: 1 }}>
-                {state.top}
+                {t(state.top)}
               </Text>
             </View>
           )}
@@ -266,7 +268,7 @@ export function RequestDialog({ requestId, session, onClose, theme, layout }: Di
               {screen === "form" ? (
                 <IconButton
                   icon="Plus"
-                  label={A11Y.add}
+                  label={t("a11y.add")}
                   color={colors.muted}
                   fill={colors.raised}
                   disabled={locked || form.rows.length >= LIMITS.fields}
@@ -276,7 +278,7 @@ export function RequestDialog({ requestId, session, onClose, theme, layout }: Di
               <View style={{ flex: 1, alignItems: "center" }}>{screen === "form" && checked.total !== null ? <RowLine text={checked.total} colors={colors} /> : null}</View>
               <IconButton
                 icon="ArrowRight"
-                label={A11Y.submit}
+                label={t("a11y.submit")}
                 color={colors.onAccent}
                 fill={colors.accent}
                 busy={busy === "arrow"}

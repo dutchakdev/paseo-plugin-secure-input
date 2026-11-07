@@ -10,10 +10,10 @@ export type FulfillResult =
   | { ok: false; code: ErrorCode; retryable: boolean; detail?: string };
 
 /** The line at the top of the form when the plugin did not take what was sent, but the request may still be open. */
-export const UNAVAILABLE = "Плагін зараз недоступний. Натисни «→» ще раз.";
+export const UNAVAILABLE = "form.unavailable";
 
 /** The line at the top of the form when the request is closed: what was typed stays, and «→» is disabled. */
-export const CLOSED = "Запит уже закрито.";
+export const CLOSED = "form.closed";
 
 /**
  * A plain description of what the form does next. The component does exactly this and decides nothing. Every flag is
@@ -21,7 +21,7 @@ export const CLOSED = "Запит уже закрито.";
  */
 export interface Next {
   /** The one line at the top of the form, or none. Nothing the plugin said besides its code is ever in it. */
-  top: string | null;
+  top: typeof UNAVAILABLE | typeof CLOSED | null;
   /** The form closes. */
   close: boolean;
   /** The request is closed on the plugin's side: «→» is disabled from now on, and what was typed stays. */

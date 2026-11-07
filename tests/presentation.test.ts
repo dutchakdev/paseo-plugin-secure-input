@@ -1,55 +1,59 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { A11Y, FORM_BADGE, KEY_PLACEHOLDER, PILL_HEIGHT, dialogScreen, eye, fieldId, formTitle, pill, pillColor, type Pill } from "../client/presentation";
+import { FORM_BADGE, KEY_PLACEHOLDER, PILL_HEIGHT, dialogScreen, eye, fieldId, formTitle, pill, pillColor, type Pill } from "../client/presentation";
+import { messages } from "../client/messages";
 import { tone, type Tone } from "../client/tone";
 import { REQUEST_STATES, type RequestState } from "../shared/request";
 import { viewOf } from "./view-fixtures";
+import { translate } from "./translation-fixture";
+
+const t = translate();
 
 const keysOf = (count: number) => Array.from({ length: count }, (_, index) => `K${index}`);
 
 describe("the pill in the chat", () => {
   it("draws the pill from the state, the keys and the tamper flag, one height for all", () => {
-    expect(pill({ state: "pending", tamper: false, keys: ["STRIPE_KEY"] })).toEqual({ tone: "accent", icon: "Shield", title: "Секрет для агента", detail: "STRIPE_KEY", struck: false, pressable: true });
-    expect(pill({ state: "pending", tamper: false, keys: ["A", "B", "C"] }).detail).toBe("3 ключі");
-    expect(pill({ state: "pending", tamper: false, keys: Array.from({ length: 5 }, (_, i) => `K${i}`) }).title).toBe("Секрети для агента");
-    expect(pill({ state: "released", tamper: false, keys: ["A"] })).toMatchObject({ tone: "muted", title: "Передано", detail: "1 ключ" });
-    expect(pill({ state: "expired", tamper: false, keys: ["A", "B"] })).toEqual({ tone: "dim", icon: "ShieldX", title: "Час минув", detail: "2 ключі", struck: true, pressable: false });
-    expect(pill({ state: "delivered", tamper: true, keys: ["A"] })).toMatchObject({ tone: "danger", icon: "ShieldAlert", title: "Підозріле подання", pressable: false });
+    expect(pill(t, { state: "pending", tamper: false, keys: ["STRIPE_KEY"] })).toEqual({ tone: "accent", icon: "Shield", title: "Secret for the agent", detail: "STRIPE_KEY", struck: false, pressable: true });
+    expect(pill(t, { state: "pending", tamper: false, keys: ["A", "B", "C"] }).detail).toBe("3 keys");
+    expect(pill(t, { state: "pending", tamper: false, keys: Array.from({ length: 5 }, (_, i) => `K${i}`) }).title).toBe("Secrets for the agent");
+    expect(pill(t, { state: "released", tamper: false, keys: ["A"] })).toMatchObject({ tone: "muted", title: "Delivered", detail: "1 key" });
+    expect(pill(t, { state: "expired", tamper: false, keys: ["A", "B"] })).toEqual({ tone: "dim", icon: "ShieldX", title: "Expired", detail: "2 keys", struck: true, pressable: false });
+    expect(pill(t, { state: "delivered", tamper: true, keys: ["A"] })).toMatchObject({ tone: "danger", icon: "ShieldAlert", title: "Suspicious submission", pressable: false });
     expect(PILL_HEIGHT).toBe(36);
   });
 
   it("follows the table below for every state, row by row", () => {
     const two = ["A", "B"];
     const rows: Array<[RequestState, Pill]> = [
-      ["pending", { tone: "accent", icon: "Shield", title: "Секрети для агента", detail: "2 ключі", struck: false, pressable: true }],
-      ["delivered", { tone: "success", icon: "ShieldCheck", title: "Передано", detail: "2 ключі", struck: false, pressable: false }],
-      ["released", { tone: "muted", icon: "ShieldCheck", title: "Передано", detail: "2 ключі", struck: false, pressable: false }],
-      ["declined", { tone: "dim", icon: "ShieldX", title: "Відхилено", detail: "2 ключі", struck: true, pressable: false }],
-      ["cancelled", { tone: "dim", icon: "ShieldX", title: "Скасовано", detail: "2 ключі", struck: true, pressable: false }],
-      ["expired", { tone: "dim", icon: "ShieldX", title: "Час минув", detail: "2 ключі", struck: true, pressable: false }],
-      ["rejected", { tone: "dim", icon: "ShieldX", title: "Не прийнято", detail: "2 ключі", struck: true, pressable: false }],
+      ["pending", { tone: "accent", icon: "Shield", title: "Secrets for the agent", detail: "2 keys", struck: false, pressable: true }],
+      ["delivered", { tone: "success", icon: "ShieldCheck", title: "Delivered", detail: "2 keys", struck: false, pressable: false }],
+      ["released", { tone: "muted", icon: "ShieldCheck", title: "Delivered", detail: "2 keys", struck: false, pressable: false }],
+      ["declined", { tone: "dim", icon: "ShieldX", title: "Declined", detail: "2 keys", struck: true, pressable: false }],
+      ["cancelled", { tone: "dim", icon: "ShieldX", title: "Cancelled", detail: "2 keys", struck: true, pressable: false }],
+      ["expired", { tone: "dim", icon: "ShieldX", title: "Expired", detail: "2 keys", struck: true, pressable: false }],
+      ["rejected", { tone: "dim", icon: "ShieldX", title: "Not accepted", detail: "2 keys", struck: true, pressable: false }],
     ];
     expect(rows.map(([state]) => state).sort()).toEqual([...REQUEST_STATES].sort());
-    for (const [state, expected] of rows) expect(pill({ state, tamper: false, keys: two }), state).toEqual(expected);
+    for (const [state, expected] of rows) expect(pill(t, { state, tamper: false, keys: two }), state).toEqual(expected);
   });
 
   it("shows a second, different submission in red in every state, and lets nobody open it", () => {
     for (const state of REQUEST_STATES) {
-      expect(pill({ state, tamper: true, keys: ["A", "B", "C"] }), state).toEqual({ tone: "danger", icon: "ShieldAlert", title: "Підозріле подання", detail: "3 ключі", struck: false, pressable: false });
+      expect(pill(t, { state, tamper: true, keys: ["A", "B", "C"] }), state).toEqual({ tone: "danger", icon: "ShieldAlert", title: "Suspicious submission", detail: "3 keys", struck: false, pressable: false });
     }
   });
 
   it("names the one key a waiting request asks for, and says nothing when it asks for none", () => {
-    expect(pill({ state: "pending", tamper: false, keys: [] })).toEqual({ tone: "accent", icon: "Shield", title: "Секрет для агента", detail: "", struck: false, pressable: true });
-    expect(pill({ state: "pending", tamper: false, keys: ["A", "B"] })).toMatchObject({ title: "Секрети для агента", detail: "2 ключі" });
+    expect(pill(t, { state: "pending", tamper: false, keys: [] })).toEqual({ tone: "accent", icon: "Shield", title: "Secret for the agent", detail: "", struck: false, pressable: true });
+    expect(pill(t, { state: "pending", tamper: false, keys: ["A", "B"] })).toMatchObject({ title: "Secrets for the agent", detail: "2 keys" });
     // Once the request is closed, the count stands for the keys, one key included.
-    expect(pill({ state: "declined", tamper: false, keys: ["STRIPE_KEY"] }).detail).toBe("1 ключ");
-    expect(pill({ state: "delivered", tamper: false, keys: [] }).detail).toBe("0 ключів");
+    expect(pill(t, { state: "declined", tamper: false, keys: ["STRIPE_KEY"] }).detail).toBe("1 key");
+    expect(pill(t, { state: "delivered", tamper: false, keys: [] }).detail).toBe("0 keys");
   });
 
   it("counts keys with the Ukrainian plural", () => {
-    const count = (n: number) => pill({ state: "delivered", tamper: false, keys: keysOf(n) }).detail;
+    const count = (n: number) => pill(translate("uk"), { state: "delivered", tamper: false, keys: keysOf(n) }).detail;
     expect([1, 2, 4, 5, 11, 12, 14, 21, 22, 25, 32].map(count)).toEqual([
       "1 ключ",
       "2 ключі",
@@ -94,25 +98,25 @@ describe("the form over the chat", () => {
     expect(seal).toContain("chacha20poly1305");
   });
 
-  it("has an accessibility label in Ukrainian for every control without words, and every input that shows no name", () => {
-    expect(A11Y).toEqual({
-      enter: "Ввести значення",
-      decline: "Відхилити запит",
-      add: "Додати ключ",
-      remove: "Прибрати ключ",
-      show: "Показати значення",
-      hide: "Сховати значення",
-      submit: "Передати",
-      pick: "Вибрати файл",
-      paste: "Вставити з буфера",
-      removeFile: "Прибрати файл",
-      name: "Назва ключа",
-      pasteArea: "Вміст файлу",
+  it("has an accessibility label in English for every control without words, and every input that shows no name", () => {
+    expect(Object.fromEntries(Object.keys(messages.resources.en.a11y).map((key) => [key, t(`a11y.${key as keyof typeof messages.resources.en.a11y}`)]))).toEqual({
+      enter: "Enter the value",
+      decline: "Decline the request",
+      add: "Add a key",
+      remove: "Remove the key",
+      show: "Show the value",
+      hide: "Hide the value",
+      submit: "Send",
+      pick: "Choose a file",
+      paste: "Paste from the clipboard",
+      removeFile: "Remove the file",
+      name: "Key name",
+      pasteArea: "File contents",
     });
   });
 
   it("is titled by the number of rows on screen", () => {
-    expect([0, 1, 2, 5, 32].map(formTitle)).toEqual(["Секрет для агента", "Секрет для агента", "Секрети для агента", "Секрети для агента", "Секрети для агента"]);
+    expect([0, 1, 2, 5, 32].map((n) => formTitle(t, n))).toEqual(["Secret for the agent", "Secret for the agent", "Secrets for the agent", "Secrets for the agent", "Secrets for the agent"]);
   });
 
   it("puts the name of a key the human adds in an input that shows the form of a name", () => {
@@ -120,8 +124,8 @@ describe("the form over the chat", () => {
   });
 
   it("switches a value between hidden and shown with the eye, which says what it will do", () => {
-    expect(eye(false)).toEqual({ icon: "Eye", label: "Показати значення" });
-    expect(eye(true)).toEqual({ icon: "EyeOff", label: "Сховати значення" });
+    expect(eye(t, false)).toEqual({ icon: "Eye", label: "Show the value" });
+    expect(eye(t, true)).toEqual({ icon: "EyeOff", label: "Hide the value" });
   });
 
   it("is on one of three screens: loading, failed, or the form", () => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The pill, the form and the settings screen follow the app's language: English and Korean, and English for any language the plugin does not have. The Ukrainian text is unchanged, and it shows once Paseo offers Ukrainian; until then an app set to another language shows English.
+
 ## 0.3.0 - 2026-11-04
 
 Thanks to Bae Seongmin ([@3ae3ae](https://github.com/3ae3ae)), who found and fixed four of the five changes below.

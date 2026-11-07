@@ -1,40 +1,22 @@
 import type { CardData } from "../shared/card";
 import type { RequestView } from "../shared/view";
-import { plural } from "./text";
+import type { Translate } from "./messages";
 import type { Tone } from "./tone";
 
 /** What the form says of how the values travel: the cipher `shared/seal.ts` really uses, and nothing else. */
 export const FORM_BADGE = "X25519 · ChaCha20-Poly1305";
 
 /** The form's title: one key on screen, or several. */
-export function formTitle(rowsOnScreen: number): string {
-  return rowsOnScreen > 1 ? "Секрети для агента" : "Секрет для агента";
+export function formTitle(t: Translate, rowsOnScreen: number): string {
+  return t(rowsOnScreen > 1 ? "form.titleMany" : "form.titleOne");
 }
-
-/** What a screen reader says of each control that has an icon and no words, and of each input that shows no name of its own. */
-export const A11Y: Readonly<
-  Record<"enter" | "decline" | "add" | "remove" | "show" | "hide" | "submit" | "pick" | "paste" | "removeFile" | "name" | "pasteArea", string>
-> = {
-  enter: "Ввести значення",
-  decline: "Відхилити запит",
-  add: "Додати ключ",
-  remove: "Прибрати ключ",
-  show: "Показати значення",
-  hide: "Сховати значення",
-  submit: "Передати",
-  pick: "Вибрати файл",
-  paste: "Вставити з буфера",
-  removeFile: "Прибрати файл",
-  name: "Назва ключа",
-  pasteArea: "Вміст файлу",
-};
 
 /** What the name input of a row of the human's shows while it is empty: the form a key has. */
 export const KEY_PLACEHOLDER = "KEY_NAME";
 
 /** The eye of a text row: what it shows, and what pressing it will do. */
-export function eye(shown: boolean): { icon: "Eye" | "EyeOff"; label: string } {
-  return shown ? { icon: "EyeOff", label: A11Y.hide } : { icon: "Eye", label: A11Y.show };
+export function eye(t: Translate, shown: boolean): { icon: "Eye" | "EyeOff"; label: string } {
+  return shown ? { icon: "EyeOff", label: t("a11y.hide") } : { icon: "Eye", label: t("a11y.show") };
 }
 
 /** The pill in the chat. Its look comes from the card's data alone, and nothing in it changes its height. */
@@ -50,33 +32,25 @@ export interface Pill {
 /** The height of the pill, in every state. The chat's list does not take a row whose height changes (getpaseo/paseo#7486). */
 export const PILL_HEIGHT = 36;
 
-/** The word for each way a request ends without its values. All of them are drawn the same way: dimmed and struck through. */
-const ENDED_AS: Readonly<Record<"declined" | "cancelled" | "expired" | "rejected", string>> = {
-  declined: "Відхилено",
-  cancelled: "Скасовано",
-  expired: "Час минув",
-  rejected: "Не прийнято",
-};
-
 /**
  * How a request looks as a pill in each state it can be in. Only a request that waits can be pressed, and not once a
  * second, different submission has come: that one is red in every state. A waiting request names its one key, or counts
  * several; every other state counts them.
  */
-export function pill(data: Pick<CardData, "state" | "tamper" | "keys">): Pill {
-  const count = plural(data.keys.length, "ключ", "ключі", "ключів");
-  if (data.tamper) return { tone: "danger", icon: "ShieldAlert", title: "Підозріле подання", detail: count, struck: false, pressable: false };
+export function pill(t: Translate, data: Pick<CardData, "state" | "tamper" | "keys">): Pill {
+  const count = t("pill.keys", { count: data.keys.length });
+  if (data.tamper) return { tone: "danger", icon: "ShieldAlert", title: t("pill.tamper"), detail: count, struck: false, pressable: false };
   switch (data.state) {
     case "pending":
       return data.keys.length > 1
-        ? { tone: "accent", icon: "Shield", title: "Секрети для агента", detail: count, struck: false, pressable: true }
-        : { tone: "accent", icon: "Shield", title: "Секрет для агента", detail: data.keys[0] ?? "", struck: false, pressable: true };
+        ? { tone: "accent", icon: "Shield", title: t("form.titleMany"), detail: count, struck: false, pressable: true }
+        : { tone: "accent", icon: "Shield", title: t("form.titleOne"), detail: data.keys[0] ?? "", struck: false, pressable: true };
     case "delivered":
-      return { tone: "success", icon: "ShieldCheck", title: "Передано", detail: count, struck: false, pressable: false };
+      return { tone: "success", icon: "ShieldCheck", title: t("pill.delivered"), detail: count, struck: false, pressable: false };
     case "released":
-      return { tone: "muted", icon: "ShieldCheck", title: "Передано", detail: count, struck: false, pressable: false };
+      return { tone: "muted", icon: "ShieldCheck", title: t("pill.delivered"), detail: count, struck: false, pressable: false };
     default:
-      return { tone: "dim", icon: "ShieldX", title: ENDED_AS[data.state], detail: count, struck: true, pressable: false };
+      return { tone: "dim", icon: "ShieldX", title: t(`pill.${data.state}`), detail: count, struck: true, pressable: false };
   }
 }
 

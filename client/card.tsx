@@ -1,11 +1,13 @@
 import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { useTranslation } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Pressable, Text } from "react-native";
 import type { CardData } from "../shared/card";
 import { RequestDialog } from "./dialog";
 import { MONO } from "./fields";
-import { A11Y, PILL_HEIGHT, pill, pillColor } from "./presentation";
+import { messages } from "./messages";
+import { PILL_HEIGHT, pill, pillColor } from "./presentation";
 import { tone } from "./tone";
 
 /** The moment the form was opened, or null while it is closed. */
@@ -19,16 +21,17 @@ type Opening = number | null;
  * host has already checked `item.data` against the strict schema given at registration.
  */
 export function RequestCard({ item, theme, host, layout }: PluginTimelineItemProps<CardData>) {
+  const { t } = useTranslation(messages);
   const colors = tone(theme.colors);
   const [session, setSession] = useState<Opening>(null);
-  const look = pill(item.data);
+  const look = pill(t, item.data);
   const { color, opacity } = pillColor(look.tone, colors);
 
   return (
     <>
       <Pressable
         accessibilityRole={look.pressable ? "button" : undefined}
-        accessibilityLabel={look.pressable ? A11Y.enter : undefined}
+        accessibilityLabel={look.pressable ? t("a11y.enter") : undefined}
         disabled={!look.pressable}
         onPress={() => setSession(Date.now())}
         style={{

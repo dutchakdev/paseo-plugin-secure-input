@@ -4,6 +4,9 @@ import { beginSelfTest, clearSelfTests, finishSelfTest } from "../server/core/se
 import { ENVELOPE_CT_MAX, EnvelopeSchema } from "../shared/contracts";
 import { SecureInputError } from "../shared/errors";
 import { MAX_PAYLOAD_BYTES } from "../shared/seal";
+import { translate } from "./translation-fixture";
+
+const t = translate();
 
 const CANARY = "CANARY-6a02-library-text";
 /** The tests that seal the largest submission there can be, with room for a loaded machine. */
@@ -87,7 +90,7 @@ describe("the self-test sequence", () => {
         const state = await runSelfTest(deps, 1024);
         expect(state, `${call}: ${String(error)}`).toEqual({ kind: "failed", stage: "plugin" });
         expect(JSON.stringify(state)).not.toContain("CANARY");
-        expect(selfTestText(state)).toBe("✗ плагін не відповів");
+        expect(selfTestText(t, state)).toBe("✗ the plugin did not answer");
       }
     }
   });
@@ -107,7 +110,7 @@ describe("the self-test sequence", () => {
     const finished = vi.fn(async () => ({ ok: true, bytes: 1 }));
     const state = await runSelfTest(realDeps({ begin: async () => probe, finish: finished }), 1024);
     expect(state).toEqual({ kind: "failed", stage: "seal" });
-    expect(selfTestText(state)).toBe("✗ не вдалося зашифрувати");
+    expect(selfTestText(t, state)).toBe("✗ could not encrypt");
     // Nothing was sent to the plugin when nothing could be sealed.
     expect(finished).not.toHaveBeenCalled();
   });
@@ -126,7 +129,7 @@ describe("the self-test sequence", () => {
     };
     const state = await runSelfTest(broken, 1024);
     expect(state.kind).toBe("failed");
-    expect(selfTestText(state)).not.toContain("CANARY");
+    expect(selfTestText(t, state)).not.toContain("CANARY");
   });
 });
 
@@ -183,19 +186,19 @@ describe("the dummy bytes the self-test seals", () => {
 
 describe("what the settings screen says about a self-test", () => {
   it("says nothing while it has not run or is running: the screen shows a spinner then, and never a result that is not this run's", () => {
-    expect(selfTestText(IDLE)).toBe("");
-    expect(selfTestText(RUNNING)).toBe("");
+    expect(selfTestText(t, IDLE)).toBe("");
+    expect(selfTestText(t, RUNNING)).toBe("");
   });
 
   it("says a success with the time it took", () => {
-    expect(selfTestText({ kind: "passed", bytes: SELF_TEST_BYTES, ms: 12 })).toBe("✓ 12 мс");
-    expect(selfTestText({ kind: "passed", bytes: 1024, ms: 0 })).toBe("✓ 0 мс");
-    expect(selfTestText({ kind: "passed", bytes: 1024, ms: 4210 })).toBe("✓ 4210 мс");
+    expect(selfTestText(t, { kind: "passed", bytes: SELF_TEST_BYTES, ms: 12 })).toBe("✓ 12 ms");
+    expect(selfTestText(t, { kind: "passed", bytes: 1024, ms: 0 })).toBe("✓ 0 ms");
+    expect(selfTestText(t, { kind: "passed", bytes: 1024, ms: 4210 })).toBe("✓ 4210 ms");
   });
 
   it("says every failure in a fixed sentence that begins with a cross", () => {
     const states: SelfTestState[] = [{ kind: "mismatch" }, { kind: "failed", stage: "seal" }, { kind: "failed", stage: "plugin" }];
-    expect(states.map(selfTestText)).toEqual(["✗ дані не збіглися", "✗ не вдалося зашифрувати", "✗ плагін не відповів"]);
-    for (const state of states) expect(selfTestText(state).startsWith("✗ ")).toBe(true);
+    expect(states.map((state) => selfTestText(t, state))).toEqual(["✗ the data did not match", "✗ could not encrypt", "✗ the plugin did not answer"]);
+    for (const state of states) expect(selfTestText(t, state).startsWith("✗ ")).toBe(true);
   });
 });

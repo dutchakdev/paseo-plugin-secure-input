@@ -45,6 +45,7 @@ import { LIMITS, type InputRequest } from "../shared/request";
 import { buildAad, digestHex, encodeValues, generateRequestKeyPair, seal, type PayloadEntry } from "../shared/seal";
 import { RequestViewSchema, type RequestView } from "../shared/view";
 import { codeOfAsync, leaksOf, promptly, rejectionOf, searchable, tempDir } from "./helpers";
+import { translate } from "./translation-fixture";
 
 const CANARY = "CANARY-sk_live_4242";
 const BIDI = String.fromCodePoint(0x202e);
@@ -2916,7 +2917,7 @@ describe("start-up", () => {
       expect(before.registry.drop).toBe("failing");
       expect(before.requests.delivered).toBe(0);
       // The red row sends the human to the button, and the button is there.
-      expect(statusRows(before)[1]).toMatchObject({ label: "Секрети на сервері", value: "0 · не все видалено", dot: "bad" });
+      expect(statusRows(translate(), before)[1]).toMatchObject({ label: "status.files", value: "0 · not all deleted", dot: "bad" });
       expect(canDeleteAll(before)).toBe(true);
       // The deletion while the entry cannot go: it says so, and the button stays.
       expect(await plugin.call(clearDrop.name, {}, daemon.port)).toEqual({ released: 0, stuck: 1 });
@@ -2928,7 +2929,7 @@ describe("start-up", () => {
     expect(await plugin.call(clearDrop.name, {}, daemon.port)).toEqual({ released: 0, stuck: 0 });
     const after = await read();
     expect(after.registry.drop).toBe("ok");
-    expect(statusRows(after)[1]).toEqual({ label: "Секрети на сервері", value: "Немає", dot: "ok", explanation: null });
+    expect(statusRows(translate(), after)[1]).toEqual({ label: "status.files", value: "None", dot: "ok", explanation: null });
     expect(canDeleteAll(after)).toBe(false);
     expect(readdirSync(plugin.files.drop)).toEqual([]);
   });

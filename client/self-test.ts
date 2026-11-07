@@ -1,5 +1,6 @@
 import { fromBase64Url } from "../shared/bytes";
 import { MAX_PAYLOAD_BYTES, buildAad, digestHex, seal, type SealedEnvelope } from "../shared/seal";
+import type { Translate } from "./messages";
 
 /**
  * What the self-test seals: the largest submission one Paseo call can carry. It proves on this device that the biggest thing
@@ -73,24 +74,21 @@ export async function runSelfTest(deps: SelfTestDeps, bytes: number = SELF_TEST_
   }
 }
 
-/** What a screen reader says of the spinner that stands in the place of the result while a run is going. */
-export const SELF_TEST_RUNNING = "Перевірка триває";
-
 /**
  * What the settings screen says of a run, next to the button: how long it took, or why it did not pass, in a fixed
  * sentence and never in the words of an error. Before a run and while one is going it says nothing: the screen shows a
- * spinner then (`SELF_TEST_RUNNING`).
+ * spinner then.
  */
-export function selfTestText(state: SelfTestState): string {
+export function selfTestText(t: Translate, state: SelfTestState): string {
   switch (state.kind) {
     case "idle":
     case "running":
       return "";
     case "passed":
-      return `✓ ${state.ms} мс`;
+      return t("selfTest.passed", { ms: state.ms });
     case "mismatch":
-      return "✗ дані не збіглися";
+      return t("selfTest.mismatch");
     default:
-      return state.stage === "seal" ? "✗ не вдалося зашифрувати" : "✗ плагін не відповів";
+      return t(state.stage === "seal" ? "selfTest.sealFailed" : "selfTest.noAnswer");
   }
 }

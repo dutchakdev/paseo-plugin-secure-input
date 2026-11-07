@@ -4,6 +4,7 @@ import { MAX_PAYLOAD_BYTES, payloadSize, type PayloadEntry } from "../shared/sea
 import { hasLoneSurrogate } from "../shared/text";
 import type { RequestView } from "../shared/view";
 import { checkedFile, encodedFile, wipeFile, type FileValue } from "./file-entry";
+import type { Translate } from "./messages";
 import { fieldId } from "./presentation";
 
 /** What a row holds: a line of text, or a file, which is null until one is picked, dropped or pasted. */
@@ -42,27 +43,20 @@ export function formFromView(view: RequestView): FormState {
   };
 }
 
-// The lines under a row, as the form words them. A limit a line names is the plugin's own number (`LIMITS`, `MAX_PAYLOAD_BYTES`).
-const INVALID_NAME = "Лише A–Z, 0–9, _";
-const RESERVED_NAME = "Ім'я зарезервоване";
-const TEXT_TOO_LARGE = `Не довше ${LIMITS.valueBytes / 1024} КіБ`;
-const BROKEN_TEXT = "Некоректний символ";
-const TOTAL_TOO_LARGE = `Разом не довше ${MAX_PAYLOAD_BYTES / 1024} КіБ`;
-
 /**
  * The key a row's name gives, and the line about it. A declared row's key is the agent's, which the plugin checked. A
  * name of the human's is trimmed, and gives no key while it is empty (and no line), is of another shape than a key, is
  * a name a plain object treats specially, or names a file an earlier row names already, exactly or by letter case: two
  * such keys would be one file on a volume that ignores case. `taken` maps each earlier key, folded, to itself.
  */
-function nameOf(row: FormRow, taken: ReadonlyMap<string, string>): { key: string | null; error: string | null } {
+function nameOf(t: Translate, row: FormRow, taken: ReadonlyMap<string, string>): { key: string | null; error: string | null } {
   if (row.declared) return { key: row.key, error: null };
   const key = row.key.trim();
   if (key === "") return { key: null, error: null };
-  if (!KEY_PATTERN.test(key)) return { key: null, error: INVALID_NAME };
-  if (RESERVED_KEYS.includes(key)) return { key: null, error: RESERVED_NAME };
+  if (!KEY_PATTERN.test(key)) return { key: null, error: t("form.invalidName") };
+  if (RESERVED_KEYS.includes(key)) return { key: null, error: t("form.reservedName") };
   const earlier = taken.get(key.toLowerCase());
-  return earlier === undefined ? { key, error: null } : { key: null, error: `Вже є ${earlier}` };
+  return earlier === undefined ? { key, error: null } : { key: null, error: t("form.duplicateName", { key: earlier }) };
 }
 
 /**
@@ -71,19 +65,19 @@ function nameOf(row: FormRow, taken: ReadonlyMap<string, string>): { key: string
  * with no partner would be written as another character. A file is checked against its row's format, and encoded, once
  * for as long as the row holds it (`checkedFile`, `encodedFile`).
  */
-function valueOf(row: FormRow): { error: string | null; entry: ((key: string) => PayloadEntry) | null } {
+function valueOf(t: Translate, row: FormRow): { error: string | null; entry: ((key: string) => PayloadEntry) | null } {
   const { value } = row;
   if (value.kind === "text") {
     const { text } = value;
     if (text === "") return { error: null, entry: null };
-    if (utf8Length(text) > LIMITS.valueBytes) return { error: TEXT_TOO_LARGE, entry: null };
-    if (hasLoneSurrogate(text)) return { error: BROKEN_TEXT, entry: null };
+    if (utf8Length(text) > LIMITS.valueBytes) return { error: t("form.tooLarge", { kib: LIMITS.valueBytes / 1024 }), entry: null };
+    if (hasLoneSurrogate(text)) return { error: t("form.brokenText"), entry: null };
     return { error: null, entry: (key) => ({ key, value: text }) };
   }
   const { file } = value;
   if (file === null) return { error: null, entry: null };
   const check = checkedFile(file, row.format);
-  if (!check.ok) return { error: check.message, entry: null };
+  if (!check.ok) return { error: t(check.message, { kib: LIMITS.fileBytes / 1024 }), entry: null };
   // The plugin gives a key whose file has no bytes no file: such a row is an empty one, here as there.
   if (file.bytes.length === 0) return { error: null, entry: null };
   return { error: null, entry: (key) => ({ key, file: encodedFile(file) }) };
@@ -98,16 +92,16 @@ function valueOf(row: FormRow): { error: string | null; entry: ((key: string) =>
  * An empty row says nothing: «→» is just disabled. A row has one line, about its name before its value. Messages name
  * keys, never values. Every file goes as `{ key, file }`, its bytes as base64url.
  */
-export function checkForm(form: FormState): { entries: PayloadEntry[] | null; errors: ReadonlyMap<string, string>; total: string | null } {
+export function checkForm(t: Translate, form: FormState): { entries: PayloadEntry[] | null; errors: ReadonlyMap<string, string>; total: string | null } {
   const errors = new Map<string, string>();
   const taken = new Map<string, string>();
   const ready: Array<() => PayloadEntry> = [];
   let complete = true;
   for (const row of form.rows) {
-    const name = nameOf(row, taken);
+    const name = nameOf(t, row, taken);
     const { key } = name;
     if (key !== null && !taken.has(key.toLowerCase())) taken.set(key.toLowerCase(), key);
-    const value = valueOf(row);
+    const value = valueOf(t, row);
     const error = name.error ?? value.error;
     if (error !== null) {
       errors.set(row.id, error);
@@ -124,7 +118,7 @@ export function checkForm(form: FormState): { entries: PayloadEntry[] | null; er
   }
   if (!complete) return { entries: null, errors, total: null };
   const entries = ready.map((make) => make());
-  if (payloadSize(entries) > MAX_PAYLOAD_BYTES) return { entries: null, errors, total: TOTAL_TOO_LARGE };
+  if (payloadSize(entries) > MAX_PAYLOAD_BYTES) return { entries: null, errors, total: t("form.totalTooLarge", { kib: MAX_PAYLOAD_BYTES / 1024 }) };
   if (entries.length === 0 || entries.length > LIMITS.fields) return { entries: null, errors, total: null };
   return { entries, errors, total: null };
 }
