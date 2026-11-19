@@ -17,7 +17,16 @@ export interface ToolAgent {
   provider: string;
   cwd: string;
   title: string | null;
+  /** Paseo 0.16 and newer: a helper with no tab, no notification and no place in the sidebar. Absent before. */
+  background?: boolean;
 }
+
+/**
+ * A background agent's chat is out of sight: no tab, no notification. A form posted there would wait for an answer
+ * nobody can give, so the request is refused at once and the agent is sent to whoever started it.
+ */
+export const BACKGROUND_AGENT =
+  "you run as a background agent, whose chat nobody sees, so no one can fill in a form for you. Ask the agent or person that started you to request the values and pass you the file paths";
 
 /** The names of the plugin's tools. A tool of one of these names that comes with a session is an older one of its own. */
 export const TOOL_NAMES = ["request_secret", "request_status", "cancel_request", "release_secret"] as const;
@@ -126,7 +135,11 @@ export function agentTools({ registry, runtime, started, drop }: ToolDeps): Agen
       description: REQUEST_SECRET,
       input: SecretRequestShape,
       // The shape is what the daemon checks a call against; the registry holds the input to the whole request schema.
-      execute: (input, { agent, paseo, signal }) => answer(paseo, () => registry.create(identityOf(agent), input, { signal })),
+      execute: (input, { agent, paseo, signal }) =>
+        answer(paseo, () => {
+          if ((agent as ToolAgent).background === true) throw new SecureInputError("invalid_request", BACKGROUND_AGENT);
+          return registry.create(identityOf(agent), input, { signal });
+        }),
     }),
     defineAgentTool({
       name: "request_status",

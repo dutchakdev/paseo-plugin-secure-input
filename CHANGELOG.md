@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A background agent (Paseo 0.16) is refused `request_secret` at once. Its chat has no tab and sends no notification, so the form would have waited for an answer nobody could give until it expired. The refusal tells the agent to have whoever started it request the values and pass on the file paths, and the skill says the same.
+
+### Changed
+
+- Paseo 0.16 and 0.17 checked: their daemons load the plugin, its RPCs and hooks work, and the plugin typechecks and passes its tests against their SDKs. The tests type the `background` and `metadata` members and the subscription overload of `handle` that 0.16 added, under every SDK.
+
 ## 0.3.0 - 2026-11-04
 
 Thanks to Bae Seongmin ([@3ae3ae](https://github.com/3ae3ae)), who found and fixed four of the five changes below.

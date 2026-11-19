@@ -115,7 +115,8 @@ function fakeHost() {
   const befores = new Map<string, Handler>();
   const events = new Map<string, Handler>();
   const host: PluginHost = {
-    handle: (contract, handler) => void rpc.set(contract.name, { contract, handler }),
+    // Paseo 0.16 overloads handle with subscriptions; this plugin serves RPCs only.
+    handle: (contract, handler) => void rpc.set(contract.name, { contract: contract as PluginRpcContract, handler }),
     before: (name, handler) => {
       befores.set(name, handler);
       return () => undefined;

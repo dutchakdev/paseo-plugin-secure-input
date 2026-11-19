@@ -144,7 +144,7 @@ The tool answers with an error whose text is `{"error": "<code>", "message": "<c
 
 | `error` | Do |
 |---|---|
-| `invalid_request` | The message says what is wrong. A member of your request: fix it. `unknown request`: the id is not one of your requests. `the request has no files to release`: it was never delivered |
+| `invalid_request` | The message says what is wrong. A member of your request: fix it. `unknown request`: the id is not one of your requests. `the request has no files to release`: it was never delivered. `you run as a background agent…`: nobody sees your chat, so do not retry and do not ask in chat; tell the agent or person that started you which keys you need, and let them request the values and pass you the file paths |
 | `request_already_pending` | The message is the id of your pending request. Wait for it. `cancel_request` it only when its values are no longer needed, never to make room for a new request: the user would type everything again |
 | `request_closed` | `cancel_request` on a request that no longer waits. `request_status` shows its state |
 | `service_unavailable` | `the plugin has not finished starting; retry in a few seconds`: retry, twice at most. `the plugin is busy; retry in a few seconds`: nothing of the call was done; retry, twice at most, then tell the user. `the plugin did not start (…). Tell the user. Do not ask for the secret in chat instead.`: do that. `the plugin is shutting down`: tell the user. `the request could not be handled`: the plugin failed over the call; ask once more, and if that answers `request_already_pending`, wait for that request |
