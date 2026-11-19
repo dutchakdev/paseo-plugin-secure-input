@@ -10,7 +10,7 @@ import { DropStore, filePath, setPath } from "../server/io/drop";
 import { registerHooks, type SessionOpenRequest } from "../server/paseo/hooks";
 import { assemble, startPlugin, type PluginHost, type PluginOptions } from "../server/paseo/plugin";
 import type { DaemonPort, TimelineItem } from "../server/paseo/runtime";
-import { NOT_HANDLED, NOT_STARTED, START_FAILED, TOOL_NAMES, identityOf, toolResult, type ToolAgent } from "../server/paseo/tools";
+import { BACKGROUND_AGENT, NOT_HANDLED, NOT_STARTED, START_FAILED, TOOL_NAMES, identityOf, toolResult, type ToolAgent } from "../server/paseo/tools";
 import { fromBase64Url } from "../shared/bytes";
 import { SecureInputError } from "../shared/errors";
 import { buildAad, encodeValues, seal, type PayloadEntry } from "../shared/seal";
@@ -36,7 +36,8 @@ function fakeHost() {
   const rpc = new Map<string, { contract: PluginRpcContract; handler: Handler }>();
   const befores = new Map<string, Handler>();
   const host: PluginHost = {
-    handle: (contract, handler) => void rpc.set(contract.name, { contract, handler }),
+    // Paseo 0.16 overloads handle with subscriptions; this plugin serves RPCs only.
+    handle: (contract, handler) => void rpc.set(contract.name, { contract: contract as PluginRpcContract, handler }),
     before: (name, handler) => {
       befores.set(name, handler);
       return () => undefined;
@@ -82,6 +83,12 @@ function fakeDaemon() {
 
 // Commit e56b2c9's fixture of the request Paseo 0.14 sends. Its four members are spread in from a const that has no type,
 // which is what lets one fixture type against the SDK before 0.14 and against 0.14's, where all four are required.
+// Paseo 0.16 adds two members to the request and to the agent a tool is called as. Spread in from a const without a
+// type for the same reason: required under 0.16's SDK, unknown under the pinned one.
+const since016 = { background: false, metadata: {} };
+/** The agent as the daemon hands it to a tool. */
+const hookAgent = (agent: ToolAgent) => ({ ...since016, ...agent });
+
 const since014 = {
   title: "Fix the build",
   labels: { task: "build" },
@@ -90,6 +97,7 @@ const since014 = {
 };
 const sessionOpen: SessionOpenRequest = {
   ...since014,
+  ...since016,
   agentId: "agent-1",
   workspaceId: "ws-1",
   provider: "claude",
@@ -158,7 +166,7 @@ async function call(on: Started, name: string, input: unknown, agent: ToolAgent,
   const opened = (await on.before("agent.session_open", sessionFor(agent), daemon.port)) as SessionOpenRequest;
   const tool = opened.tools.find((candidate) => candidate.name === name);
   if (tool === undefined) throw new Error(`the session was not given ${name}`);
-  const result = await tool.execute(input, { agent, paseo: daemon.port as unknown as AgentToolContext["paseo"], signal });
+  const result = await tool.execute(input, { agent: hookAgent(agent), paseo: daemon.port as unknown as AgentToolContext["paseo"], signal });
   if (typeof result.text !== "string") throw new Error(`${name} answered with no text`);
   return result as AgentToolResult & { text: string };
 }
@@ -354,6 +362,17 @@ describe("whose request it is", () => {
     const relative: ToolAgent = { ...agentA, id: "agent-r", cwd: "relative/dir" };
     expect(await call(plugin, "request_secret", asking, relative)).toEqual({ isError: true, text: refusal("invalid_request", "the agent's identity cannot be stored") });
     expect(readFileSync(join(plugin.dataDir, "requests.json"), "utf8")).toBe("[]");
+  });
+
+  it("refuses a background agent at once, since nobody sees its chat, and sends it to whoever started it", async () => {
+    // Paseo 0.16: a helper with no tab and no notification. A card in its chat would wait for an answer nobody gives.
+    const helper: ToolAgent = { ...agentA, id: "agent-helper", parentAgentId: "agent-a", background: true };
+    expect(await call(plugin, "request_secret", asking, helper)).toEqual({ isError: true, text: refusal("invalid_request", BACKGROUND_AGENT) });
+    expect(readFileSync(join(plugin.dataDir, "requests.json"), "utf8")).toBe("[]");
+    await plugin.runtime.settled();
+    expect(daemon.appended).toEqual([]);
+    // The same agent in sight, as every agent before 0.16 is, asks as before.
+    expect((await call(plugin, "request_secret", asking, { ...helper, background: false })).isError).toBeUndefined();
   });
 });
 

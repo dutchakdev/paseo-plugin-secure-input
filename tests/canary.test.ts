@@ -144,7 +144,8 @@ function fakeHost() {
   const befores = new Map<string, Handler>();
   const events = new Map<string, Handler>();
   const host: PluginHost = {
-    handle: (contract, handler) => void rpc.set(contract.name, { contract, handler }),
+    // Paseo 0.16 overloads handle with subscriptions; this plugin serves RPCs only.
+    handle: (contract, handler) => void rpc.set(contract.name, { contract: contract as PluginRpcContract, handler }),
     before: (name, handler) => {
       befores.set(name, handler);
       return () => undefined;
@@ -267,7 +268,9 @@ describe("a typed value", () => {
 
     // The agent's session opens, as the daemon opens it: the plugin's tools come with it.
     const agent: ToolAgent = { id: AGENT, workspaceId: "ws-1", parentAgentId: null, provider: "claude", cwd, title: "Canary agent" };
-    const session: SessionOpenRequest = { agentId: AGENT, workspaceId: "ws-1", provider: "claude", cwd, reason: "create", purpose: "interactive", title: "Canary agent", labels: {}, tools: [], env: {}, mcpServers: {} };
+    // Members Paseo 0.16 adds, spread from a const without a type so the fixture types under the pinned SDK and 0.16's.
+    const since016 = { background: false, metadata: {} };
+    const session: SessionOpenRequest = { ...since016, agentId: AGENT, workspaceId: "ws-1", provider: "claude", cwd, reason: "create", purpose: "interactive", title: "Canary agent", labels: {}, tools: [], env: {}, mcpServers: {} };
     const opened = (await hostFake.before("agent.session_open", session, daemon.port)) as SessionOpenRequest;
     see("hook result agent.session_open", onTheWire(opened));
     // The four tools, exactly.
@@ -276,7 +279,7 @@ describe("a typed value", () => {
     const tool = async (name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean; structuredContent?: unknown }> => {
       const found = opened.tools.find((candidate) => candidate.name === name);
       if (found === undefined) throw new Error(`the session was not given ${name}`);
-      const result = await found.execute(args, { agent, paseo: daemon.port as unknown as AgentToolContext["paseo"], signal: new AbortController().signal });
+      const result = await found.execute(args, { agent: { ...since016, ...agent }, paseo: daemon.port as unknown as AgentToolContext["paseo"], signal: new AbortController().signal });
       // Both what the model reads and what a client may show: the text and the structured content.
       see(`tool ${name}`, JSON.stringify(result));
       return { text: result.text ?? "", isError: result.isError === true, structuredContent: result.structuredContent };

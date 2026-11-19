@@ -61,7 +61,7 @@ The form shows no reason: the agent says why it asks in its own message. Deletio
 
 ## What the agent gets
 
-The agent has four tools beside Paseo's own: `request_secret` (named keys, or none; it answers `"status": "pending"`, and the paths follow in a message), `request_status`, `cancel_request` and `release_secret`, which agents see as `mcp__paseo__request_secret`, `mcp__paseo__request_status`, `mcp__paseo__cancel_request` and `mcp__paseo__release_secret`. A text value is one line of at most 64 KiB; a file is at most 128 KiB, binary included, checked as JSON or PEM when the agent asks for that. One pending request per agent; a request nobody answers expires after 8 hours. The skill holds the input and the rules the agent follows.
+The agent has four tools beside Paseo's own: `request_secret` (named keys, or none; it answers `"status": "pending"`, and the paths follow in a message), `request_status`, `cancel_request` and `release_secret`, which agents see as `mcp__paseo__request_secret`, `mcp__paseo__request_status`, `mcp__paseo__cancel_request` and `mcp__paseo__release_secret`. A text value is one line of at most 64 KiB; a file is at most 128 KiB, binary included, checked as JSON or PEM when the agent asks for that. One pending request per agent; a request nobody answers expires after 8 hours. A background agent (Paseo 0.16), whose chat nobody sees, is refused at once and sent to whoever started it. The skill holds the input and the rules the agent follows.
 
 ## What you see
 
