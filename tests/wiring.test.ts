@@ -246,8 +246,13 @@ const inertOutbox = {
   retire: () => undefined,
   stop: () => undefined,
 };
+// Members Paseo 0.16 adds to the request and to the agent a tool is called as. Spread in from a const without a type, so
+// the fixtures type under the pinned SDK, where they are unknown, and under 0.16's and later, where they are required.
+const since016 = { background: false, metadata: {} };
+
 /** The request the daemon sends the session-open hook when it opens an agent's session (Paseo 0.14). */
 const opening = (agentId: string, cwd: string): SessionOpenRequest => ({
+  ...since016,
   agentId,
   workspaceId: null,
   provider: "claude",
@@ -275,7 +280,7 @@ async function toolsOf(plugin: { before(name: string, request: unknown, port: Da
   return async (name: string, input: unknown): Promise<{ text: string; isError?: boolean; structuredContent?: unknown }> => {
     const tool = opened.tools.find((candidate) => candidate.name === name);
     if (tool === undefined) throw new Error(`the session was not given ${name}`);
-    const result = await tool.execute(input, { agent, paseo: port as unknown as AgentToolContext["paseo"], signal: new AbortController().signal });
+    const result = await tool.execute(input, { agent: { ...since016, ...agent }, paseo: port as unknown as AgentToolContext["paseo"], signal: new AbortController().signal });
     answers.push(JSON.stringify(result));
     return { ...result, text: result.text ?? "" };
   };
