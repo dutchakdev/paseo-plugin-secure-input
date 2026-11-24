@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- The delivery message, tool help and documentation now explain when files are deleted if a delivery joins a running turn (#25).
 - A background agent (Paseo 0.16) is refused `request_secret` at once. Its chat has no tab and sends no notification, so the form would have waited for an answer nobody could give until it expired. The refusal tells the agent to have whoever started it request the values and pass on the file paths, and the skill says the same.
 
 ### Changed

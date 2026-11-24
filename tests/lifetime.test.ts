@@ -909,7 +909,8 @@ describe("a release or a look under way when the stop begins", () => {
   });
 
   it("keeps the agent's own release the agent's, though the stop's sweep took the set while it was under way", async () => {
-    const h = harness(tempDir(), { shutdownBoundMs: 50 });
+    // The gate controls the race. Let the filesystem finish within the normal shutdown bound.
+    const h = harness(tempDir());
     const id = await deliverOne(h);
     const { held, at } = holdRelease(h);
     const asked = h.registry.release("agent-1", id);

@@ -234,7 +234,7 @@ describe("the tools an agent is given", () => {
         'It returns at once with status "pending": end your turn, and a message with the paths arrives when the user has submitted. Do not poll. ' +
         "Never read, print, open, compare or log a file or directory whose name starts with si-secret-. " +
         "Move each value where it belongs without reading it (`command < PATH`, `cp PATH DESTINATION`), then delete the directory or call release_secret. " +
-        "The files are deleted at the end of the turn the message starts, and 15 minutes after they were written at the latest.",
+        "The files are deleted at the end of the turn the delivery message starts, or at the end of your next turn if it joins a running turn, and 15 minutes after they were written at the latest.",
     );
     expect(described.get("request_status")).toBe(
       "The state of one of your requests, its keys and whether a second submission reached it; while its files exist, the path of each file and when they are deleted. Never returns values. " +

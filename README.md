@@ -74,7 +74,7 @@ A pill in the agent's chat holds the key names, never a value: «Секрет д
 Each delivery is `<data>/drop/si-secret-<requestId>/` with a file per key you filled in. The plugin tries to delete it at the first of these; a crash or a failed removal can leave files behind ([SECURITY.md](SECURITY.md#crashes-stops-and-restarts)):
 
 - The agent calls `release_secret`, or deletes the directory itself.
-- The end, with any outcome, of the agent's turn that its delivery message starts.
+- The end, with any outcome, of the agent's turn that its delivery message starts. If the message joins a running turn, the files go at the end of the agent's next turn or at the deadline, whichever comes first.
 - The agent is archived.
 - 15 minutes after the write; on a machine that slept through that, within a minute of waking.
 - The plugin starts, and sweeps `drop/`.
