@@ -14,6 +14,7 @@ import {
 } from "../client/outcome";
 import { ERROR_CODES, type ErrorCode } from "../shared/errors";
 import { REQUEST_STATES } from "../shared/request";
+import { translate } from "./translation-fixture";
 
 /** Nothing happens. Every row below says what differs from it, so a flag nobody meant to set shows up. */
 const KEEP: Next = { top: null, close: false, closed: false, clearForm: false, dropEnvelope: false, outcomeUnknown: false };
@@ -23,8 +24,8 @@ const refused = (code: ErrorCode, retryable: boolean, detail?: string): FulfillR
 
 describe("the two lines the form says at its top", () => {
   it("are exactly these words", () => {
-    expect(UNAVAILABLE).toBe("Плагін зараз недоступний. Натисни «→» ще раз.");
-    expect(CLOSED).toBe("Запит уже закрито.");
+    expect(translate()(UNAVAILABLE)).toBe("The plugin is not available right now. Press → again.");
+    expect(translate()(CLOSED)).toBe("The request is already closed.");
   });
 });
 

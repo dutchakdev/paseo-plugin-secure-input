@@ -146,12 +146,9 @@ function fakeHost() {
   const host: PluginHost = {
     // Paseo 0.16 overloads handle with subscriptions; this plugin serves RPCs only.
     handle: (contract, handler) => void rpc.set(contract.name, { contract: contract as PluginRpcContract, handler }),
-    before: (name, handler) => {
-      befores.set(name, handler);
-      return () => undefined;
-    },
-    on: (name, handler) => {
-      events.set(name, handler);
+    addHook: (name, handler) => {
+      const registered = name === "agent.open.before" ? befores : events;
+      registered.set(name, handler);
       return () => undefined;
     },
   };
@@ -271,8 +268,8 @@ describe("a typed value", () => {
     // Members Paseo 0.16 adds, spread from a const without a type so the fixture types under the pinned SDK and 0.16's.
     const since016 = { background: false, metadata: {} };
     const session: SessionOpenRequest = { ...since016, agentId: AGENT, workspaceId: "ws-1", provider: "claude", cwd, reason: "create", purpose: "interactive", title: "Canary agent", labels: {}, tools: [], env: {}, mcpServers: {} };
-    const opened = (await hostFake.before("agent.session_open", session, daemon.port)) as SessionOpenRequest;
-    see("hook result agent.session_open", onTheWire(opened));
+    const opened = (await hostFake.before("agent.open.before", session, daemon.port)) as SessionOpenRequest;
+    see("hook result agent.open.before", onTheWire(opened));
     // The four tools, exactly.
     expect(opened.tools.map((tool) => tool.name)).toEqual([...TOOL_NAMES]);
 
@@ -390,7 +387,7 @@ describe("a typed value", () => {
 
     // --- The agent moves a value where it belongs without reading it, in the turn the message started. ---
     const savedStates = () => JSON.parse(readFileSync(join(plugin.dataDir, "requests.json"), "utf8")) as RequestRecord[];
-    await hostFake.emit("agent.turn_started", { agent, turnId: "t-1" }, daemon.port);
+    await hostFake.emit("agent.turn.before", { agent, turnId: "t-1" }, daemon.port);
     // The path as the message quotes it for the shell, run by a real shell; the value goes from file to file.
     const named = `  API_KEY → `;
     const quoted = message.split("\n").find((line) => line.startsWith(named))?.slice(named.length) ?? "";
@@ -399,7 +396,7 @@ describe("a typed value", () => {
     execFileSync("/bin/sh", ["-c", `cp ${quoted} ${shellPath(copied)}`], { stdio: "ignore" });
     expect(readFileSync(copied).equals(Buffer.from(CANARY, "utf8"))).toBe(true);
     expect(existsSync(set)).toBe(true);
-    await hostFake.emit("agent.turn_ended", { agent, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
+    await hostFake.emit("agent.turn.after", { agent, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
     expect(readdirSync(drop)).toEqual([]);
     expect(plugin.registry.get(deliveredId)).toMatchObject({ state: "released", releasedBy: "turn" });
     expect(savedStates().find((record) => record.id === deliveredId)).toMatchObject({ state: "released", releasedBy: "turn" });

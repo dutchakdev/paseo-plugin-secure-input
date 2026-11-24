@@ -29,7 +29,7 @@ export const DROP_TTL_MS = 900_000;
 export const PLUGIN_VERSION = "0.3.0";
 
 /** The release of Paseo the plugin needs, as the settings screen says it. The same test holds it to the requirement in `paseo-plugin.json`. */
-export const PASEO_SINCE = "Paseo 0.14+";
+export const PASEO_SINCE = "Paseo 0.15+";
 
 /**
  * The most bytes one Paseo RPC message may have on its way from either app to the daemon: the smallest limit on that

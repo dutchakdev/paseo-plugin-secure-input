@@ -26,9 +26,8 @@ const hookAgent = (id: string) => ({ id, workspaceId: null, parentAgentId: null,
 /** The plugin's hooks on a host of the test's, with the registry as what the turns act on and a runtime that only notes the flushes it is asked for. */
 function hooked(registry: Registry) {
   const events = new Map<string, (event: unknown, context: unknown) => unknown>();
-  const host: Pick<PluginHost, "before" | "on"> = {
-    before: () => () => undefined,
-    on: (name, handler) => {
+  const host: Pick<PluginHost, "addHook"> = {
+    addHook: (name, handler) => {
       events.set(name, handler as (event: unknown, context: unknown) => unknown);
       return () => undefined;
     },
@@ -189,9 +188,9 @@ describe("the end of the turn the message started", () => {
       const set = await deliverOne(other);
       const hooks = hooked(other.registry);
       other.registry.messageSent(set);
-      await hooks.emit("agent.turn_started", { agent: hookAgent("agent-1"), turnId: "t-1" });
+      await hooks.emit("agent.turn.before", { agent: hookAgent("agent-1"), turnId: "t-1" });
       expect(other.registry.get(set)?.state, outcome.kind).toBe("delivered");
-      await hooks.emit("agent.turn_ended", { agent: hookAgent("agent-1"), turnId: "t-1", outcome, timeline: [] });
+      await hooks.emit("agent.turn.after", { agent: hookAgent("agent-1"), turnId: "t-1", outcome, timeline: [] });
       expect(other.registry.get(set), outcome.kind).toMatchObject({ state: "released", releasedBy: "turn" });
       expect(existsSync(setPath(other.dropRoot, set)), outcome.kind).toBe(false);
       expect(hooks.flushed, outcome.kind).toEqual(["agent-1"]);
@@ -317,7 +316,7 @@ describe("an archived agent", () => {
     const second = await deliverOne(h);
     const other = await deliverOne(h, "agent-2");
     const hooks = hooked(h.registry);
-    await hooks.emit("agent.archived", { agent: hookAgent("agent-1"), archivedAt: "2026-10-11T00:00:00Z" });
+    await hooks.emit("agent.archive.after", { agent: hookAgent("agent-1"), archivedAt: "2026-10-11T00:00:00Z" });
     for (const id of [first, second]) {
       expect(h.registry.get(id)).toMatchObject({ state: "released", releasedBy: "archived" });
       expect(stored(h.dataDir).find((record) => record.id === id)).toMatchObject({ state: "released", releasedBy: "archived" });

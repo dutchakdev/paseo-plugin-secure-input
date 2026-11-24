@@ -26,6 +26,7 @@ class Instance<P> {
   constructor(
     readonly component: (props: P) => unknown,
     public props: P,
+    readonly wrap?: (child: ReactElement) => ReactElement,
   ) {}
 
   render(): unknown {
@@ -35,7 +36,7 @@ class Instance<P> {
     this.effectIndex = 0;
     this.dirty = false;
     try {
-      this.tree = this.component(this.props);
+      this.tree = this.wrap === undefined ? this.component(this.props) : draw(this.wrap({ type: this.component, props: this.props } as ReactElement));
     } finally {
       current = null;
     }
@@ -65,8 +66,47 @@ function instance(): Instance<unknown> {
 const sameDeps = (a: readonly unknown[] | undefined, b: readonly unknown[] | undefined): boolean =>
   a !== undefined && b !== undefined && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
 
+interface Context<T> {
+  defaultValue: T;
+  Provider: { context: Context<T> };
+}
+
+const contexts = new Map<unknown, unknown>();
+
+/** Draws the wrapper and its providers before the component, with each context held only inside its provider. */
+function draw(element: ReactElement): unknown {
+  if (typeof element.type === "function") return (element.type as (props: unknown) => unknown)(element.props);
+  const provider = element.type as unknown as { context?: Context<unknown> };
+  if (provider.context === undefined) throw new Error("the wrapper must draw a component or a provider");
+  const context = provider.context;
+  const previous = contexts.get(context);
+  const had = contexts.has(context);
+  const props = element.props as { value: unknown; children: ReactElement };
+  contexts.set(context, props.value);
+  try {
+    return draw(props.children);
+  } finally {
+    if (had) contexts.set(context, previous);
+    else contexts.delete(context);
+  }
+}
+
 /** The hooks `react` is mocked with. */
 export const hooks = {
+  createContext<T>(defaultValue: T): Context<T> {
+    const context = { defaultValue } as Context<T>;
+    context.Provider = { context };
+    return context;
+  },
+  useContext<T>(context: Context<T>): T {
+    instance();
+    return contexts.has(context) ? (contexts.get(context) as T) : context.defaultValue;
+  },
+  useSyncExternalStore<T>(subscribe: (listener: () => void) => () => void, getSnapshot: () => T): T {
+    const [snapshot, setSnapshot] = hooks.useState(getSnapshot);
+    hooks.useEffect(() => subscribe(() => setSnapshot(getSnapshot())), [subscribe, getSnapshot]);
+    return snapshot;
+  },
   useState<T>(initial: T | (() => T)): [T, (next: T | ((previous: T) => T)) => void] {
     const owner = instance();
     const index = owner.index++;
@@ -117,8 +157,8 @@ export interface Mounted<P> {
   readonly mounted: boolean;
 }
 
-export function mount<P>(component: (props: P) => unknown, props: P): Mounted<P> {
-  const owner = new Instance(component, props);
+export function mount<P>(component: (props: P) => unknown, props: P, wrap?: (child: ReactElement) => ReactElement): Mounted<P> {
+  const owner = new Instance(component, props, wrap);
   owner.render();
   const settle = async (): Promise<unknown> => {
     for (let round = 0; round < 50; round++) {

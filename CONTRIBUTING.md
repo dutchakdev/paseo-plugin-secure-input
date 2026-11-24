@@ -20,9 +20,13 @@ The development SDK (`@getpaseo/*`) is pinned to 0.14.0-beta.1, the oldest relea
 
 ## The documents are tested
 
-`tests/docs.test.ts` holds README.md, SECURITY.md, OVERVIEW.md and the skill to the code where a check can: the tool names, the «…» strings against the app's modules, the plugin's messages and refusals as quoted, the numbers with a unit against the constants behind them, local links and anchors in the checkout, the request examples, the list of ways a set goes, and the `.env`, whole-file and remote-file recipes, which it runs with a value in a real file. It does not validate every prose claim, host behavior, external links or live commands; review those against the source and recorded validation evidence. When a document changes, change what the test claims of it in the same commit; never loosen the test to let a sentence pass. `tests/canary.test.ts` sends recognisable values through the tools and the whole plugin, and fails if one turns up anywhere but in the files in `drop/`.
+`tests/docs.test.ts` holds README.md, SECURITY.md, OVERVIEW.md and the skill to the code where a check can: the tool names, the «…» strings against the English text in `client/messages.ts`, the plugin's messages and refusals as quoted, the numbers with a unit against the constants behind them, local links and anchors in the checkout, the request examples, the list of ways a set goes, and the `.env`, whole-file and remote-file recipes, which it runs with a value in a real file. It does not validate every prose claim, host behavior, external links or live commands; review those against the source and recorded validation evidence. When a document changes, change what the test claims of it in the same commit; never loosen the test to let a sentence pass. `tests/canary.test.ts` sends recognisable values through the tools and the whole plugin, and fails if one turns up anywhere but in the files in `drop/`.
 
 `docs/preview.png` is rendered from `docs/preview.svg` by `scripts/preview-png.sh` (Chrome and the Swift toolchain, macOS).
+
+## The app's languages
+
+The words of the pill, the form and the settings screen are in `client/messages.ts`, one resource per language. English is the source: change a sentence there first, then in every other language. Paseo falls back to English key by key, so a missing key would show one English line in a translated screen; `tests/messages.test.ts` fails until every language has every English key, in each plural form its language needs. Three sentences name the retry limit in words, and the same test holds `MAX_RETRIES` to the number they say. A new language is a resource under its canonical tag, shown once Paseo offers that language.
 
 ## Changelog and releases
 
@@ -55,7 +59,7 @@ paseo plugin ls          # expect: running
 paseo plugin logs secure-input
 ```
 
-`running` covers the daemon half only. The app checks its own version before it runs the client half, so check the pill, the form and the settings screen in the app as well, on the desktop and on a phone, in light and dark themes, and press «Перевірити» on each. Use test values, never a real secret. Report automated checks separately from what you saw in the app.
+`running` covers the daemon half only. The app checks its own version before it runs the client half, so check the pill, the form and the settings screen in the app as well, on the desktop and on a phone, in light and dark themes, in English and in Korean, and press «Check» on each. Use test values, never a real secret. Report automated checks separately from what you saw in the app.
 
 Observed on Paseo 0.14.0-beta.1 with Claude Code 2.1.311 and Codex 0.164.0: Claude Code lists the tools as `mcp__paseo__request_secret` and the other three alike, deferred until loaded with `ToolSearch`; Codex has them as nested tools of `exec`, listed in `ALL_TOOLS`, and one Codex model did not find them until told to look there. In Claude Code's `default` mode and Codex's `auto` mode every call asked for permission, and Claude Code also before each `cp` of a delivered file. Kimi and other modes were not tried.
 

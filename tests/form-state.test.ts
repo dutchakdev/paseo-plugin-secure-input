@@ -6,6 +6,9 @@ import { toBase64Url, utf8 } from "../shared/bytes";
 import { LIMITS } from "../shared/limits";
 import { MAX_PAYLOAD_BYTES } from "../shared/seal";
 import { file, text, view } from "./view-fixtures";
+import { translate } from "./translation-fixture";
+
+const t = translate();
 
 const CANARY = "CANARY-4d1e-never-in-a-message";
 
@@ -52,7 +55,7 @@ describe("checkForm", () => {
     const form = formFromView(view([text("API_KEY"), file("SA", "json"), text("OPT", true)]));
     type(form, "field:API_KEY", "value-one");
     attach(form, "field:SA", { name: "sa.json", bytes: utf8.encode('{"a":1}') });
-    expect(checkForm(form)).toEqual({
+    expect(checkForm(t, form)).toEqual({
       entries: [
         { key: "API_KEY", value: "value-one" },
         { key: "SA", file: toBase64Url(utf8.encode('{"a":1}')) },
@@ -64,114 +67,114 @@ describe("checkForm", () => {
 
   it("keeps «→» disabled without a word while a required field is empty", () => {
     const form = formFromView(view([text("API_KEY"), file("SA", "json"), text("OPT", true)]));
-    expect(checkForm(form)).toEqual(NOTHING);
+    expect(checkForm(t, form)).toEqual(NOTHING);
     type(form, "field:API_KEY", "value-one");
-    expect(checkForm(form)).toEqual(NOTHING);
+    expect(checkForm(t, form)).toEqual(NOTHING);
     attach(form, "field:SA", bytesOf("{}"));
-    expect(checkForm(form).entries).toEqual([
+    expect(checkForm(t, form).entries).toEqual([
       { key: "API_KEY", value: "value-one" },
       { key: "SA", file: toBase64Url(utf8.encode("{}")) },
     ]);
     // Emptied again, it waits again.
     type(form, "field:API_KEY", "");
-    expect(checkForm(form)).toEqual(NOTHING);
+    expect(checkForm(t, form)).toEqual(NOTHING);
   });
 
   it("puts each error under its row, in the words the form has for it", () => {
     let form = formFromView(view([text("API_KEY")]));
     type(form, "field:API_KEY", "value-one");
     form = human(form, 1, "api_key", "value-two");
-    expect(checkForm(form)).toEqual({ entries: null, errors: new Map([["row:1", "Вже є API_KEY"]]), total: null });
+    expect(checkForm(t, form)).toEqual({ entries: null, errors: new Map([["row:1", "Already used: API_KEY"]]), total: null });
     form = setName(form, "row:1", "1X");
-    expect(checkForm(form)).toEqual({ entries: null, errors: new Map([["row:1", "Лише A–Z, 0–9, _"]]), total: null });
+    expect(checkForm(t, form)).toEqual({ entries: null, errors: new Map([["row:1", "Only A–Z, 0–9, _"]]), total: null });
     form = setName(form, "row:1", "EXTRA");
     form = setText(form, "row:1", "a".repeat(65_537));
-    expect(checkForm(form)).toEqual({ entries: null, errors: new Map([["row:1", "Не довше 64 КіБ"]]), total: null });
+    expect(checkForm(t, form)).toEqual({ entries: null, errors: new Map([["row:1", "No longer than 64 KiB"]]), total: null });
     form = setText(form, "row:1", `x${String.fromCharCode(0xd83d)}`);
-    expect(checkForm(form)).toEqual({ entries: null, errors: new Map([["row:1", "Некоректний символ"]]), total: null });
+    expect(checkForm(t, form)).toEqual({ entries: null, errors: new Map([["row:1", "Invalid character"]]), total: null });
     form = setText(form, "row:1", "value-two");
-    expect(checkForm(form)).toEqual({ entries: [{ key: "API_KEY", value: "value-one" }, { key: "EXTRA", value: "value-two" }], errors: new Map(), total: null });
+    expect(checkForm(t, form)).toEqual({ entries: [{ key: "API_KEY", value: "value-one" }, { key: "EXTRA", value: "value-two" }], errors: new Map(), total: null });
   });
 
   it("refuses the names a plain object would treat specially, and a name of another shape, in a row of the human's", () => {
     const base = formFromView(view([]));
     for (const name of ["__proto__", "constructor", "prototype"]) {
-      expect(checkForm(human(base, 1, name, "value")).errors.get("row:1"), name).toBe("Ім'я зарезервоване");
+      expect(checkForm(t, human(base, 1, name, "value")).errors.get("row:1"), name).toBe("This name is reserved");
     }
     for (const name of ["1X", "A-B", "A B", "ключ", "K".repeat(LIMITS.key + 1), "$X"]) {
-      expect(checkForm(human(base, 1, name, "value")).errors.get("row:1"), name).toBe("Лише A–Z, 0–9, _");
+      expect(checkForm(t, human(base, 1, name, "value")).errors.get("row:1"), name).toBe("Only A–Z, 0–9, _");
     }
     // Names that only look like those, the longest name, and names a prototype has but nothing treats specially.
     for (const name of ["constructors", "_proto_", "K".repeat(LIMITS.key), "toString", "hasOwnProperty", "x"]) {
-      expect(checkForm(human(base, 1, name, "value")), name).toEqual({ entries: [{ key: name, value: "value" }], errors: new Map(), total: null });
+      expect(checkForm(t, human(base, 1, name, "value")), name).toEqual({ entries: [{ key: name, value: "value" }], errors: new Map(), total: null });
     }
   });
 
   it("names the earlier row a name collides with, exactly or by letter case, and only the later row is marked", () => {
     let form = human(formFromView(view([])), 1, "TOKEN", "value-one");
     form = human(form, 2, "token", "value-two");
-    expect(checkForm(form)).toEqual({ entries: null, errors: new Map([["row:2", "Вже є TOKEN"]]), total: null });
+    expect(checkForm(t, form)).toEqual({ entries: null, errors: new Map([["row:2", "Already used: TOKEN"]]), total: null });
     form = setName(form, "row:2", "TOKEN");
-    expect(checkForm(form).errors).toEqual(new Map([["row:2", "Вже є TOKEN"]]));
+    expect(checkForm(t, form).errors).toEqual(new Map([["row:2", "Already used: TOKEN"]]));
     // A third row that collides with both is told of the first.
     form = human(form, 3, "Token", "value-three");
-    expect(checkForm(form).errors).toEqual(new Map([["row:2", "Вже є TOKEN"], ["row:3", "Вже є TOKEN"]]));
+    expect(checkForm(t, form).errors).toEqual(new Map([["row:2", "Already used: TOKEN"], ["row:3", "Already used: TOKEN"]]));
     // A declared field the human leaves empty is a row all the same: its name is taken.
     const optional = human(formFromView(view([text("WEBHOOK", true)])), 1, "Webhook", "value-one");
-    expect(checkForm(optional).errors).toEqual(new Map([["row:1", "Вже є WEBHOOK"]]));
+    expect(checkForm(t, optional).errors).toEqual(new Map([["row:1", "Already used: WEBHOOK"]]));
   });
 
   it("does not let a name it refused take a name from a later row", () => {
     let form = human(formFromView(view([])), 1, "constructor", "value-one");
     form = human(form, 2, "constructor", "value-two");
-    expect(checkForm(form).errors).toEqual(new Map([["row:1", "Ім'я зарезервоване"], ["row:2", "Ім'я зарезервоване"]]));
+    expect(checkForm(t, form).errors).toEqual(new Map([["row:1", "This name is reserved"], ["row:2", "This name is reserved"]]));
   });
 
   it("trims the name of a row of the human's before it is checked and sent", () => {
-    expect(checkForm(human(formFromView(view([])), 1, "  EXTRA  ", "value")).entries).toEqual([{ key: "EXTRA", value: "value" }]);
+    expect(checkForm(t, human(formFromView(view([])), 1, "  EXTRA  ", "value")).entries).toEqual([{ key: "EXTRA", value: "value" }]);
   });
 
   it("shows no text for a row of the human's without a name or a value, and sends nothing while there is one", () => {
     const named = formFromView(view([text("A")]));
     type(named, "field:A", "value-one");
-    expect(checkForm(addRow(named, 1))).toEqual(NOTHING);
-    expect(checkForm(human(named, 1, "EXTRA", ""))).toEqual(NOTHING);
-    expect(checkForm(human(named, 1, "", "value-two"))).toEqual(NOTHING);
-    expect(checkForm(human(named, 1, "   ", "value-two"))).toEqual(NOTHING);
+    expect(checkForm(t, addRow(named, 1))).toEqual(NOTHING);
+    expect(checkForm(t, human(named, 1, "EXTRA", ""))).toEqual(NOTHING);
+    expect(checkForm(t, human(named, 1, "", "value-two"))).toEqual(NOTHING);
+    expect(checkForm(t, human(named, 1, "   ", "value-two"))).toEqual(NOTHING);
     // A row whose name is not there yet still says what is wrong with its value.
-    expect(checkForm(human(named, 1, "", "a".repeat(65_537))).errors).toEqual(new Map([["row:1", "Не довше 64 КіБ"]]));
+    expect(checkForm(t, human(named, 1, "", "a".repeat(65_537))).errors).toEqual(new Map([["row:1", "No longer than 64 KiB"]]));
     // The name is said first: a row has one line.
-    expect(checkForm(human(named, 1, "1X", "a".repeat(65_537))).errors).toEqual(new Map([["row:1", "Лише A–Z, 0–9, _"]]));
+    expect(checkForm(t, human(named, 1, "1X", "a".repeat(65_537))).errors).toEqual(new Map([["row:1", "Only A–Z, 0–9, _"]]));
   });
 
   it("sends nothing, and so keeps «→» disabled, when no entry would go: every declared field optional and empty and no row of the human's", () => {
     // The plugin refuses a submission that writes nothing, and that refusal closes the request.
     const optional = formFromView(view([text("OPT", true), file("OPT_FILE", "any", true)]));
-    expect(checkForm(optional)).toEqual(NOTHING);
-    expect(checkForm(formFromView(view([])))).toEqual(NOTHING);
+    expect(checkForm(t, optional)).toEqual(NOTHING);
+    expect(checkForm(t, formFromView(view([])))).toEqual(NOTHING);
     // One row of the human's with a name and a value is enough, and so is one optional field filled.
-    expect(checkForm(human(optional, 1, "EXTRA", "value-two")).entries).toEqual([{ key: "EXTRA", value: "value-two" }]);
+    expect(checkForm(t, human(optional, 1, "EXTRA", "value-two")).entries).toEqual([{ key: "EXTRA", value: "value-two" }]);
     const filled = formFromView(view([text("OPT", true), file("OPT_FILE", "any", true)]));
     attach(filled, "field:OPT_FILE", bytesOf("x"));
-    expect(checkForm(filled).entries).toEqual([{ key: "OPT_FILE", file: toBase64Url(utf8.encode("x")) }]);
+    expect(checkForm(t, filled).entries).toEqual([{ key: "OPT_FILE", file: toBase64Url(utf8.encode("x")) }]);
   });
 
   it("takes a file of no bytes for no file: a required field still waits, an optional one is left out, and alone it sends nothing", () => {
     const empty = (): FileValue => ({ name: "empty.txt", bytes: new Uint8Array(0) });
     const required = formFromView(view([file("SA")]));
     attach(required, "field:SA", empty());
-    expect(checkForm(required)).toEqual(NOTHING);
+    expect(checkForm(t, required)).toEqual(NOTHING);
     const optional = formFromView(view([file("SA", "any", true), text("A")]));
     attach(optional, "field:SA", empty());
     type(optional, "field:A", "value-one");
-    expect(checkForm(optional).entries).toEqual([{ key: "A", value: "value-one" }]);
+    expect(checkForm(t, optional).entries).toEqual([{ key: "A", value: "value-one" }]);
     const alone = formFromView(view([file("SA", "any", true)]));
     attach(alone, "field:SA", empty());
-    expect(checkForm(alone)).toEqual(NOTHING);
+    expect(checkForm(t, alone)).toEqual(NOTHING);
     let theirs = toFileRow(addRow(formFromView(view([])), 1), "row:1");
     theirs = setName(theirs, "row:1", "EXTRA");
     theirs = fillFile(theirs, "row:1", empty());
-    expect(checkForm(theirs)).toEqual(NOTHING);
+    expect(checkForm(t, theirs)).toEqual(NOTHING);
   });
 
   it("puts a file's check under its row, and the size first", () => {
@@ -179,12 +182,12 @@ describe("checkForm", () => {
     attach(form, "field:SA", bytesOf("{nope"));
     attach(form, "field:KEY", bytesOf("not a key"));
     attach(form, "field:BLOB", { name: "big.bin", bytes: new Uint8Array(LIMITS.fileBytes + 1) });
-    expect(checkForm(form)).toEqual({
+    expect(checkForm(t, form)).toEqual({
       entries: null,
       errors: new Map([
-        ["field:SA", "Це не JSON"],
-        ["field:KEY", "Це не PEM"],
-        ["field:BLOB", "Не довше 128 КіБ"],
+        ["field:SA", "Not JSON"],
+        ["field:KEY", "Not PEM"],
+        ["field:BLOB", "No longer than 128 KiB"],
       ]),
       total: null,
     });
@@ -194,22 +197,22 @@ describe("checkForm", () => {
     const check = (value: string) => {
       const form = formFromView(view([text("A")]));
       type(form, "field:A", value);
-      return checkForm(form).errors.get("field:A") ?? "ok";
+      return checkForm(t, form).errors.get("field:A") ?? "ok";
     };
     expect(LIMITS.valueBytes).toBe(64 * 1024);
     expect(check("a".repeat(LIMITS.valueBytes))).toBe("ok");
-    expect(check("a".repeat(LIMITS.valueBytes + 1))).toBe("Не довше 64 КіБ");
+    expect(check("a".repeat(LIMITS.valueBytes + 1))).toBe("No longer than 64 KiB");
     expect(check("я".repeat(LIMITS.valueBytes / 2))).toBe("ok");
-    expect(check("я".repeat(LIMITS.valueBytes / 2 + 1))).toBe("Не довше 64 КіБ");
+    expect(check("я".repeat(LIMITS.valueBytes / 2 + 1))).toBe("No longer than 64 KiB");
     const emoji = String.fromCodePoint(0x1f511);
     expect(check(emoji.repeat(LIMITS.valueBytes / 4))).toBe("ok");
-    expect(check(emoji.repeat(LIMITS.valueBytes / 4 + 1))).toBe("Не довше 64 КіБ");
+    expect(check(emoji.repeat(LIMITS.valueBytes / 4 + 1))).toBe("No longer than 64 KiB");
     const high = String.fromCharCode(0xd83d);
     const low = String.fromCharCode(0xdc00);
-    expect(check(`${"a".repeat(LIMITS.valueBytes - 3)}${high}`)).toBe("Некоректний символ");
-    expect(check(`${"a".repeat(LIMITS.valueBytes - 2)}${high}`)).toBe("Не довше 64 КіБ");
-    expect(check(`${low}x`)).toBe("Некоректний символ");
-    expect(check(`${high}${high}${low}`)).toBe("Некоректний символ");
+    expect(check(`${"a".repeat(LIMITS.valueBytes - 3)}${high}`)).toBe("Invalid character");
+    expect(check(`${"a".repeat(LIMITS.valueBytes - 2)}${high}`)).toBe("No longer than 64 KiB");
+    expect(check(`${low}x`)).toBe("Invalid character");
+    expect(check(`${high}${high}${low}`)).toBe("Invalid character");
     expect(check(`x${emoji}y`)).toBe("ok");
   });
 
@@ -221,7 +224,7 @@ describe("checkForm", () => {
       type(form, "field:A", `${CANARY}-ключ`);
       attach(form, "field:SA", { name: "sa.json", bytes: Uint8Array.from([0x7b, 0x7d]) });
       form = human(form, 1, "EXTRA", "я".repeat(LIMITS.valueBytes / 2 + 1));
-      expect(checkForm(form).errors).toEqual(new Map([["row:1", "Не довше 64 КіБ"]]));
+      expect(checkForm(t, form).errors).toEqual(new Map([["row:1", "No longer than 64 KiB"]]));
       expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
@@ -235,7 +238,7 @@ describe("checkForm", () => {
     type(form, "field:A", "a-value");
     form = human(form, 7, "Y", "y-value");
     form = human(form, 3, "B", "b-value");
-    expect(checkForm(form).entries).toEqual([
+    expect(checkForm(t, form).entries).toEqual([
       { key: "Z", value: "z-value" },
       { key: "M", file: toBase64Url(utf8.encode("m")) },
       { key: "A", value: "a-value" },
@@ -248,7 +251,7 @@ describe("checkForm", () => {
     const binary = { name: "cert.p12", bytes: Uint8Array.from([0x30, 0x82, 0x00, 0xff, 0x0d, 0x0a]) };
     let form = toFileRow(addRow(formFromView(view([])), 1), "row:1");
     form = fillFile(setName(form, "row:1", "P12"), "row:1", binary);
-    expect(checkForm(form).entries).toEqual([{ key: "P12", file: toBase64Url(binary.bytes) }]);
+    expect(checkForm(t, form).entries).toEqual([{ key: "P12", file: toBase64Url(binary.bytes) }]);
   });
 
   it("says the total is too large when the rows together would not fit one submission, and never for rows within the limits", () => {
@@ -263,21 +266,21 @@ describe("checkForm", () => {
         format: "any",
         value: { kind: "text", text: worst },
       }));
-    const within = checkForm({ rows: rowsOf(LIMITS.fields) });
+    const within = checkForm(t, { rows: rowsOf(LIMITS.fields) });
     expect(within.total).toBeNull();
     expect(within.entries).toHaveLength(LIMITS.fields);
     // One row more than a request may carry, which «+» does not allow, is more than one submission carries.
-    const over = checkForm({ rows: rowsOf(LIMITS.fields + 1) });
-    expect(over).toEqual({ entries: null, errors: new Map(), total: `Разом не довше ${MAX_PAYLOAD_BYTES / 1024} КіБ` });
-    expect(over.total).toBe("Разом не довше 12293 КіБ");
+    const over = checkForm(t, { rows: rowsOf(LIMITS.fields + 1) });
+    expect(over).toEqual({ entries: null, errors: new Map(), total: `No longer than ${MAX_PAYLOAD_BYTES / 1024} KiB in total` });
+    expect(over.total).toBe("No longer than 12293 KiB in total");
   }, 30_000);
 
   it("sends no more rows than a request may carry, however the form came to have them", () => {
     let form = formFromView(view([]));
     for (let n = 1; n <= LIMITS.fields + 1; n++) form = { rows: [...form.rows, ...human({ rows: [] }, n, `K${n}`, "v").rows] };
     expect(form.rows).toHaveLength(LIMITS.fields + 1);
-    expect(checkForm(form)).toEqual(NOTHING);
-    expect(checkForm({ rows: form.rows.slice(0, LIMITS.fields) }).entries).toHaveLength(LIMITS.fields);
+    expect(checkForm(t, form)).toEqual(NOTHING);
+    expect(checkForm(t, { rows: form.rows.slice(0, LIMITS.fields) }).entries).toHaveLength(LIMITS.fields);
   });
 
   it("never puts a value into a message", () => {
@@ -293,7 +296,7 @@ describe("checkForm", () => {
       return form;
     });
     for (const form of attempts) {
-      const result = checkForm(form);
+      const result = checkForm(t, form);
       expect(result.entries).toBeNull();
       expect(result.errors.size).toBeGreaterThan(0);
       expect(JSON.stringify({ errors: [...result.errors], total: result.total })).not.toContain("CANARY");
@@ -371,7 +374,7 @@ describe("what the human does to the form", () => {
       // Every change of another row checks the whole form again.
       for (let round = 0; round < 5; round++) {
         form = setText(form, "field:API_KEY", `typed-${round}`);
-        expect(checkForm(form).entries).toEqual([
+        expect(checkForm(t, form).entries).toEqual([
           { key: "API_KEY", value: `typed-${round}` },
           { key: "SA", file: toBase64Url(utf8.encode('{"a":1}')) },
         ]);
@@ -384,7 +387,7 @@ describe("what the human does to the form", () => {
     const cleared = clearFile(form, "field:SA");
     expect(wiped(value)).toBe(true);
     expect(encodedFile(value)).toBe(toBase64Url(new Uint8Array(value.bytes.length)));
-    expect(checkForm(cleared).entries).toBeNull();
+    expect(checkForm(t, cleared).entries).toBeNull();
     // So is one that a row did not take, and every one of a form that is wiped.
     const refused = bytesOf("[1]");
     encodedFile(refused);
@@ -392,7 +395,7 @@ describe("what the human does to the form", () => {
     expect(encodedFile(refused)).toBe(toBase64Url(new Uint8Array(3)));
     const held = bytesOf("[2]");
     const holding = fillFile(formFromView(view([file("SC")])), "field:SC", held);
-    expect(checkForm(holding).entries).toEqual([{ key: "SC", file: toBase64Url(utf8.encode("[2]")) }]);
+    expect(checkForm(t, holding).entries).toEqual([{ key: "SC", file: toBase64Url(utf8.encode("[2]")) }]);
     wipeForm(holding);
     expect(encodedFile(held)).toBe(toBase64Url(new Uint8Array(3)));
   });

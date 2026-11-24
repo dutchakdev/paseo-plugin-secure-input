@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- The pill, the form and the settings screen follow the app's language: English and Korean, and English for any language the plugin does not have. The Ukrainian text is unchanged, and it shows once Paseo offers Ukrainian; until then an app set to another language shows English.
+
 ### Fixed
 
 - The delivery message, tool help and documentation now explain when files are deleted if a delivery joins a running turn (#25).
@@ -9,6 +13,7 @@
 
 ### Changed
 
+- The plugin requires Paseo 0.15.0 or later on the daemon and in the app. It now registers lifecycle hooks through the current SDK.
 - Paseo 0.16 and 0.17 checked: their daemons load the plugin, its RPCs and hooks work, and the plugin typechecks and passes its tests against their SDKs. The tests type the `background` and `metadata` members and the subscription overload of `handle` that 0.16 added, under every SDK.
 
 ## 0.3.0 - 2026-11-04

@@ -1,9 +1,11 @@
+import { useTranslation } from "@getpaseo/plugin/client";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
 import { checkedFile, fileLine, fromPasted, takeFile, type FileValue } from "./file-entry";
 import type { FormRow } from "./form-state";
-import { A11Y, KEY_PLACEHOLDER, eye } from "./presentation";
+import { messages, type Translate } from "./messages";
+import { KEY_PLACEHOLDER, eye } from "./presentation";
 import type { Tone } from "./tone";
 import { canPickFiles, pickFile, useFileDrop } from "./web";
 
@@ -52,7 +54,7 @@ interface IconButtonProps {
   busy?: boolean;
 }
 
-/** A control with an icon and no words: what it does is its accessibility label, in Ukrainian, and the field it is for its hint. */
+/** A control with an icon and no words: what it does is its accessibility label, in the app's language, and the field it is for its hint. */
 export function IconButton({ icon, label, hint, color, onPress, disabled = false, fill, busy = false }: IconButtonProps) {
   return (
     <Pressable
@@ -96,12 +98,12 @@ function KeyText({ row, colors }: { row: FormRow; colors: Tone }) {
 }
 
 /** The name of a key the human adds. A name is not a secret, so it is shown as typed; a screen reader is told what it is. */
-function NameInput({ row, colors, locked, onName }: { row: FormRow; colors: Tone; locked: boolean; onName(key: string): void }) {
+function NameInput({ t, row, colors, locked, onName }: { t: Translate; row: FormRow; colors: Tone; locked: boolean; onName(key: string): void }) {
   return (
     <TextInput
       value={row.key}
       onChangeText={onName}
-      accessibilityLabel={A11Y.name}
+      accessibilityLabel={t("a11y.name")}
       placeholder={KEY_PLACEHOLDER}
       placeholderTextColor={colors.muted}
       editable={!locked}
@@ -137,13 +139,14 @@ interface TextRowProps extends RowProps {
  * of the row takes a press, the eye included.
  */
 export function TextRow({ row, hint, error, colors, locked, onText, onName, onToFile, onRemove }: TextRowProps) {
+  const { t } = useTranslation(messages);
   const [shown, setShown] = useState(false);
-  const look = eye(shown);
+  const look = eye(t, shown);
   const text = row.value.kind === "text" ? row.value.text : "";
   return (
     <View style={{ gap: 4, opacity: locked ? 0.5 : 1 }}>
       <View style={boxStyle(colors, error !== null)}>
-        {row.declared ? <KeyText row={row} colors={colors} /> : <NameInput row={row} colors={colors} locked={locked} onName={onName} />}
+        {row.declared ? <KeyText row={row} colors={colors} /> : <NameInput t={t} row={row} colors={colors} locked={locked} onName={onName} />}
         <TextInput
           value={text}
           onChangeText={onText}
@@ -157,8 +160,8 @@ export function TextRow({ row, hint, error, colors, locked, onText, onName, onTo
         <IconButton icon={look.icon} label={look.label} color={colors.muted} disabled={locked} onPress={() => setShown((current) => !current)} />
         {row.declared ? null : (
           <>
-            <IconButton icon="Paperclip" label={A11Y.pick} color={colors.muted} disabled={locked} onPress={onToFile} />
-            <IconButton icon="X" label={A11Y.remove} color={colors.muted} disabled={locked} onPress={onRemove} />
+            <IconButton icon="Paperclip" label={t("a11y.pick")} color={colors.muted} disabled={locked} onPress={onToFile} />
+            <IconButton icon="X" label={t("a11y.remove")} color={colors.muted} disabled={locked} onPress={onRemove} />
           </>
         )}
       </View>
@@ -180,6 +183,7 @@ interface FileRowProps extends RowProps {
  * loses focus its text becomes the file and the area closes. The agent's label is the hint of each of its controls.
  */
 export function FileRow({ row, hint, error, colors, locked, onName, onFile, onClearFile, onRemove }: FileRowProps) {
+  const { t } = useTranslation(messages);
   const box = useRef<View>(null);
   const alive = useRef(true);
   useEffect(() => {
@@ -191,7 +195,7 @@ export function FileRow({ row, hint, error, colors, locked, onName, onFile, onCl
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState("");
   const file = row.value.kind === "file" ? row.value.file : null;
-  const line = useMemo(() => (file === null ? null : fileLine(file, row.format, checkedFile(file, row.format))), [file, row.format]);
+  const line = useMemo(() => (file === null ? null : fileLine(t, file, row.format, checkedFile(file, row.format))), [t, file, row.format]);
 
   // A file is handed on only while the row is unlocked and mounted, and wiped otherwise (`takeFile`).
   const take = (value: FileValue) =>
@@ -217,30 +221,30 @@ export function FileRow({ row, hint, error, colors, locked, onName, onFile, onCl
   return (
     <View style={{ gap: 4, opacity: locked ? 0.5 : 1 }}>
       <View ref={box} style={boxStyle(colors, error !== null, file === null)}>
-        {row.declared ? <KeyText row={row} colors={colors} /> : <NameInput row={row} colors={colors} locked={locked} onName={onName} />}
+        {row.declared ? <KeyText row={row} colors={colors} /> : <NameInput t={t} row={row} colors={colors} locked={locked} onName={onName} />}
         {row.format === "any" ? null : <Text style={{ color: colors.muted, opacity: 0.7, fontFamily: MONO, fontSize: 11 }}>{row.format}</Text>}
         {line === null ? (
           <>
             <View style={{ flex: 1 }} />
-            {canPickFiles ? <IconButton icon="Paperclip" label={A11Y.pick} hint={hint} color={colors.muted} disabled={locked} onPress={pick} /> : null}
-            <IconButton icon="ClipboardPaste" label={A11Y.paste} hint={hint} color={colors.muted} disabled={locked} onPress={() => setPasting(true)} />
+            {canPickFiles ? <IconButton icon="Paperclip" label={t("a11y.pick")} hint={hint} color={colors.muted} disabled={locked} onPress={pick} /> : null}
+            <IconButton icon="ClipboardPaste" label={t("a11y.paste")} hint={hint} color={colors.muted} disabled={locked} onPress={() => setPasting(true)} />
           </>
         ) : (
           <>
             <Text numberOfLines={1} style={{ flex: 1, color: colors.text, fontSize: 12 }}>
               {line}
             </Text>
-            <IconButton icon="X" label={A11Y.removeFile} hint={hint} color={colors.muted} disabled={locked} onPress={onClearFile} />
+            <IconButton icon="X" label={t("a11y.removeFile")} hint={hint} color={colors.muted} disabled={locked} onPress={onClearFile} />
           </>
         )}
-        {row.declared ? null : <IconButton icon="X" label={A11Y.remove} color={colors.muted} disabled={locked} onPress={onRemove} />}
+        {row.declared ? null : <IconButton icon="X" label={t("a11y.remove")} color={colors.muted} disabled={locked} onPress={onRemove} />}
       </View>
       {pasting ? (
         <TextInput
           value={pasted}
           onChangeText={setPasted}
           onBlur={endPaste}
-          accessibilityLabel={A11Y.pasteArea}
+          accessibilityLabel={t("a11y.pasteArea")}
           accessibilityHint={hint === "" ? undefined : hint}
           multiline
           autoFocus

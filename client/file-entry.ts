@@ -1,7 +1,7 @@
 import { toBase64Url, utf8 } from "../shared/bytes";
 import { LIMITS } from "../shared/limits";
 import { sanitizeText } from "../shared/sanitize";
-import { bytesText } from "./text";
+import type { Translate } from "./messages";
 
 /**
  * A file the human picked, dropped or pasted: its bytes, as they are, and its name. The name is null for a paste. The
@@ -17,13 +17,13 @@ export interface FileValue {
 type Format = "json" | "pem" | "any";
 
 /** What the app found of a file, before anything is sealed: it passes, or the one line under its row says why not. */
-export type FileCheck = { ok: true } | { ok: false; message: "Це не JSON" | "Це не PEM" | "Не довше 128 КіБ" };
+export type FileCheck = { ok: true } | { ok: false; message: "file.notJson" | "file.notPem" | "form.tooLarge" };
 
 const PASSES: FileCheck = { ok: true };
-/** `LIMITS.fileBytes`, 128 KiB, as the form words it: a literal, so that the type says which line it is. */
-const TOO_LARGE: FileCheck = { ok: false, message: "Не довше 128 КіБ" };
-const NOT_JSON: FileCheck = { ok: false, message: "Це не JSON" };
-const NOT_PEM: FileCheck = { ok: false, message: "Це не PEM" };
+/** The size line stays a key, so that a cached check reads in the current language. */
+const TOO_LARGE: FileCheck = { ok: false, message: "form.tooLarge" };
+const NOT_JSON: FileCheck = { ok: false, message: "file.notJson" };
+const NOT_PEM: FileCheck = { ok: false, message: "file.notPem" };
 
 /** A line of a PEM that opens a block, and one that closes it, ending in CR LF or in LF. */
 const PEM_BEGIN = /^-----BEGIN [^\r\n]+-----\r?$/m;
@@ -64,20 +64,20 @@ export function checkFile(file: FileValue, format: Format): FileCheck {
 /** The most of a file's name that is shown: the longest name a file system gives one. */
 const NAME_MAX = 255;
 
-/** «2,1 КіБ»: the size of a file, in bytes below a KiB and in KiB with one decimal above. */
-export function sizeText(bytes: number): string {
-  if (bytes < 1024) return bytesText(bytes);
-  return `${(bytes / 1024).toFixed(1).replace(".", ",")} КіБ`;
+/** «2.1 KiB»: the size of a file, in bytes below a KiB and in KiB with one decimal above, written as the app's language writes a decimal («2,1 КіБ»). */
+export function sizeText(t: Translate, bytes: number): string {
+  if (bytes < 1024) return t("file.bytes", { count: bytes });
+  return t("file.kib", { size: bytes / 1024 });
 }
 
 /**
- * The line that stands for a file in its row: its name, or «вставлено» for a paste, its size, and for a format that
+ * The line that stands for a file in its row: its name, or «pasted» for a paste, its size, and for a format that
  * is checked, the check. Never a byte of the file. The name is the human's file system's, and it is shown without what
  * could hide or reorder it, which a name made to deceive could hold.
  */
-export function fileLine(file: FileValue, format: "json" | "pem" | "any", check: FileCheck): string {
-  const name = file.name === null ? "вставлено" : sanitizeText(file.name, NAME_MAX);
-  const parts = [name, sizeText(file.bytes.length)];
+export function fileLine(t: Translate, file: FileValue, format: "json" | "pem" | "any", check: FileCheck): string {
+  const name = file.name === null ? t("file.pasted") : sanitizeText(file.name, NAME_MAX);
+  const parts = [name, sizeText(t, file.bytes.length)];
   if (format !== "any") parts.push(`${format} ${check.ok ? "✓" : "✗"}`);
   return parts.filter((part) => part !== "").join(" · ");
 }

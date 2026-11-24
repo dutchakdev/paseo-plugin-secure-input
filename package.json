@@ -40,10 +40,10 @@
     "@noble/hashes": "2.4.0"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.14.0-beta.1",
-    "@getpaseo/plugin": "0.14.0-beta.1",
-    "@getpaseo/protocol": "0.14.0-beta.1",
-    "@getpaseo/relay": "0.14.0-beta.1",
+    "@getpaseo/client": "0.15.0",
+    "@getpaseo/plugin": "0.15.0",
+    "@getpaseo/protocol": "0.15.0",
+    "@getpaseo/relay": "0.15.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@tanstack/react-query": "^5.105.0",
     "@types/node": "^22.0.0",
@@ -53,6 +53,7 @@
     "semver": "7.8.6",
     "typescript": "^7.0.2",
     "typescript-5": "npm:typescript@5.9.3",
+    "vite": "8.3.6",
     "vitest": "^5.0.5",
     "zod": "^4.6.7"
   },

@@ -45,6 +45,7 @@ import { LIMITS, type InputRequest } from "../shared/request";
 import { buildAad, digestHex, encodeValues, generateRequestKeyPair, seal, type PayloadEntry } from "../shared/seal";
 import { RequestViewSchema, type RequestView } from "../shared/view";
 import { codeOfAsync, leaksOf, promptly, rejectionOf, searchable, tempDir } from "./helpers";
+import { translate } from "./translation-fixture";
 
 const CANARY = "CANARY-sk_live_4242";
 const BIDI = String.fromCodePoint(0x202e);
@@ -117,12 +118,9 @@ function fakeHost() {
   const host: PluginHost = {
     // Paseo 0.16 overloads handle with subscriptions; this plugin serves RPCs only.
     handle: (contract, handler) => void rpc.set(contract.name, { contract: contract as PluginRpcContract, handler }),
-    before: (name, handler) => {
-      befores.set(name, handler);
-      return () => undefined;
-    },
-    on: (name, handler) => {
-      events.set(name, handler);
+    addHook: (name, handler) => {
+      const registered = name === "agent.open.before" ? befores : events;
+      registered.set(name, handler);
       return () => undefined;
     },
   };
@@ -274,7 +272,7 @@ const agentNamed = (id: string, cwd: string, title: string | null = null): ToolA
  * daemon calls them: with the agent it names. What a tool answers is searched for what the test typed.
  */
 async function toolsOf(plugin: { before(name: string, request: unknown, port: DaemonPort): Promise<unknown> }, agent: ToolAgent, port: DaemonPort) {
-  const opened = (await plugin.before("agent.session_open", { ...opening(agent.id, agent.cwd), provider: agent.provider, title: agent.title }, port)) as SessionOpenRequest;
+  const opened = (await plugin.before("agent.open.before", { ...opening(agent.id, agent.cwd), provider: agent.provider, title: agent.title }, port)) as SessionOpenRequest;
   const answers: string[] = [];
   said.push(() => answers);
   return async (name: string, input: unknown): Promise<{ text: string; isError?: boolean; structuredContent?: unknown }> => {
@@ -1586,7 +1584,7 @@ describe("contracts", () => {
       startup: { code: "service_unavailable", detail: "the drop directory is not a private directory of this user" },
       cardsOwed: 0,
       messagesHeld: false,
-      lastHookFailure: "agent.session_open: unexpected",
+      lastHookFailure: "agent.open.before: unexpected",
     };
     expect(DiagnosticsSchema.safeParse(healthy).success).toBe(true);
     expect(DiagnosticsSchema.safeParse({ ...healthy, startup: null, lastHookFailure: null }).success).toBe(true);
@@ -1885,12 +1883,12 @@ describe("RPC handlers", () => {
 describe("hooks on the host", () => {
   it("registers the hooks and the events the plugin needs", async () => {
     const plugin = await started();
-    expect(plugin.hasBefore("agent.session_open")).toBe(true);
+    expect(plugin.hasBefore("agent.open.before")).toBe(true);
     // The tools come with the session: nothing is put into an agent's configuration as it is created.
     expect(plugin.hasBefore("agent.create")).toBe(false);
-    expect(plugin.hasEvent("agent.turn_started")).toBe(true);
-    expect(plugin.hasEvent("agent.turn_ended")).toBe(true);
-    expect(plugin.hasEvent("agent.archived")).toBe(true);
+    expect(plugin.hasEvent("agent.turn.before")).toBe(true);
+    expect(plugin.hasEvent("agent.turn.after")).toBe(true);
+    expect(plugin.hasEvent("agent.archive.after")).toBe(true);
     // Deliberately not: what "closed" means for an agent that can be opened again is not known.
     expect(plugin.hasEvent("agent.closed")).toBe(false);
   });
@@ -1899,7 +1897,7 @@ describe("hooks on the host", () => {
     const plugin = await started();
     const cwd = tempDir();
     const daemon = fakeDaemon({ "agent-1": { status: "running" }, "agent-2": { status: "running" } });
-    await plugin.before("agent.session_open", opening("agent-1", cwd), daemon.port);
+    await plugin.before("agent.open.before", opening("agent-1", cwd), daemon.port);
     const ended: Record<string, string> = {};
     for (const agentId of ["agent-1", "agent-2"]) {
       const { requestId } = await plugin.registry.create({ agentId, cwd: tempDir(), title: null }, asking);
@@ -1910,7 +1908,7 @@ describe("hooks on the host", () => {
     const waiting = () => (JSON.parse(readFileSync(plugin.files.outbox, "utf8")) as Array<{ agentId: string }>).map((item) => item.agentId);
     expect(waiting()).toEqual(["agent-1", "agent-2"]);
 
-    await plugin.emit("agent.archived", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, daemon.port);
+    await plugin.emit("agent.archive.after", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, daemon.port);
     await plugin.runtime.settled();
     expect(waiting()).toEqual(["agent-2"]);
 
@@ -1923,7 +1921,7 @@ describe("hooks on the host", () => {
   it("enqueues no message when archiving pending and delivered requests, including at their later expiry", async () => {
     const plugin = await started();
     const daemon = fakeDaemon({ "agent-1": { status: "running" } });
-    await plugin.before("agent.session_open", opening("agent-1", tempDir()), daemon.port);
+    await plugin.before("agent.open.before", opening("agent-1", tempDir()), daemon.port);
     const identity = { agentId: "agent-1", cwd: tempDir(), title: null };
     const delivered = (await plugin.registry.create(identity, asking)).requestId;
     expect(await submit(plugin.registry, delivered, [{ key: "A", value: CANARY }])).toEqual({ ok: true, state: "delivered" });
@@ -1932,7 +1930,7 @@ describe("hooks on the host", () => {
     expect(await plugin.outbox.pending()).toBe(1);
     const enqueued = vi.spyOn(plugin.outbox, "enqueue");
 
-    await plugin.emit("agent.archived", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, daemon.port);
+    await plugin.emit("agent.archive.after", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, daemon.port);
     expect(plugin.registry.get(pending)?.state).toBe("cancelled");
     expect(plugin.registry.get(delivered)).toMatchObject({ state: "released", releasedBy: "archived" });
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 9 * 60 * 60 * 1000);
@@ -1951,20 +1949,20 @@ describe("hooks on the host", () => {
     const plugin = await started();
     const daemon = fakeDaemon({});
     for (const payload of [{}, { env: null }, { agentId: "a" }] as unknown[]) {
-      expect(await plugin.before("agent.session_open", payload, daemon.port), JSON.stringify(payload)).toBe(payload);
+      expect(await plugin.before("agent.open.before", payload, daemon.port), JSON.stringify(payload)).toBe(payload);
     }
-    expect((await plugin.diagnostics()).lastHookFailure).toBe("agent.session_open: unexpected");
-    await expect(plugin.emit("agent.turn_ended", {}, daemon.port)).resolves.toBeUndefined();
-    await expect(plugin.emit("agent.turn_started", undefined, daemon.port)).resolves.toBeUndefined();
+    expect((await plugin.diagnostics()).lastHookFailure).toBe("agent.open.before: unexpected");
+    await expect(plugin.emit("agent.turn.after", {}, daemon.port)).resolves.toBeUndefined();
+    await expect(plugin.emit("agent.turn.before", undefined, daemon.port)).resolves.toBeUndefined();
     expect(plugin.runtime.attached).toBe(true);
   });
 
   it("captures the daemon API from the first hook or event", async () => {
     const first: Array<[string, (plugin: Awaited<ReturnType<typeof started>>, port: DaemonPort) => Promise<unknown>]> = [
-      ["agent.session_open", (plugin, port) => plugin.before("agent.session_open", opening("a", "/work/a"), port)],
-      ["agent.turn_started", (plugin, port) => plugin.emit("agent.turn_started", { agent: { id: "a" } }, port)],
-      ["agent.turn_ended", (plugin, port) => plugin.emit("agent.turn_ended", { agent: { id: "a" } }, port)],
-      ["agent.archived", (plugin, port) => plugin.emit("agent.archived", { agent: { id: "a" }, archivedAt: "2026-10-11T00:00:00Z" }, port)],
+      ["agent.open.before", (plugin, port) => plugin.before("agent.open.before", opening("a", "/work/a"), port)],
+      ["agent.turn.before", (plugin, port) => plugin.emit("agent.turn.before", { agent: { id: "a" } }, port)],
+      ["agent.turn.after", (plugin, port) => plugin.emit("agent.turn.after", { agent: { id: "a" } }, port)],
+      ["agent.archive.after", (plugin, port) => plugin.emit("agent.archive.after", { agent: { id: "a" }, archivedAt: "2026-10-11T00:00:00Z" }, port)],
     ];
     for (const [name, trigger] of first) {
       const plugin = await started();
@@ -1979,16 +1977,16 @@ describe("hooks on the host", () => {
     const plugin = await started();
     const cwd = tempDir();
     const daemon = fakeDaemon({ "agent-1": { status: "running" } });
-    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
     const { requestId } = await plugin.registry.create({ agentId: "agent-1", cwd, title: null }, asking);
     await plugin.registry.decline(requestId);
     await plugin.runtime.settled();
     expect(daemon.sent).toEqual([]);
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
-    await plugin.emit("agent.turn_ended", { agent: { id: "agent-1" }, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
+    await plugin.emit("agent.turn.after", { agent: { id: "agent-1" }, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toEqual([{ agentId: "agent-1", text: continuationText(plugin.registry.get(requestId) as RequestRecord, plugin.files.drop) as string }]);
-    await plugin.emit("agent.turn_ended", { agent: { id: "agent-1" }, turnId: "t-2", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
+    await plugin.emit("agent.turn.after", { agent: { id: "agent-1" }, turnId: "t-2", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toHaveLength(1);
   });
@@ -1996,12 +1994,12 @@ describe("hooks on the host", () => {
   it("offers the tools before the start-up is done, and in an Electron runtime as well", async () => {
     const early = await started({}, false);
     const daemon = fakeDaemon({});
-    const opened = (await early.before("agent.session_open", opening("agent-1", "/work/a"), daemon.port)) as SessionOpenRequest;
+    const opened = (await early.before("agent.open.before", opening("agent-1", "/work/a"), daemon.port)) as SessionOpenRequest;
     expect(opened.tools.map((tool) => tool.name)).toEqual([...TOOL_NAMES]);
     await early.ready;
     const electron = await started({ runtime: { kind: "electron", execPath: "/Applications/Paseo.app/Contents/MacOS/Paseo" } });
     expect(electron.status.problem).toBeNull();
-    expect(((await electron.before("agent.session_open", opening("agent-1", "/work/a"), daemon.port)) as SessionOpenRequest).tools.map((tool) => tool.name)).toEqual([...TOOL_NAMES]);
+    expect(((await electron.before("agent.open.before", opening("agent-1", "/work/a"), daemon.port)) as SessionOpenRequest).tools.map((tool) => tool.name)).toEqual([...TOOL_NAMES]);
   });
 });
 
@@ -2020,12 +2018,12 @@ describe("the guard of the hooks", () => {
     });
     const port = fakeDaemon({}).port;
     const open = opening("agent-1", "/work/a");
-    expect(await fake.before("agent.session_open", open, port)).toBe(open);
-    await expect(fake.emit("agent.turn_started", { agent: { id: "agent-1" } }, port)).resolves.toBeUndefined();
-    await expect(fake.emit("agent.turn_ended", { agent: { id: "agent-1" } }, port)).resolves.toBeUndefined();
-    await expect(fake.emit("agent.archived", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, port)).resolves.toBeUndefined();
+    expect(await fake.before("agent.open.before", open, port)).toBe(open);
+    await expect(fake.emit("agent.turn.before", { agent: { id: "agent-1" } }, port)).resolves.toBeUndefined();
+    await expect(fake.emit("agent.turn.after", { agent: { id: "agent-1" } }, port)).resolves.toBeUndefined();
+    await expect(fake.emit("agent.archive.after", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, port)).resolves.toBeUndefined();
     // A code, never the error's words.
-    expect(failures).toEqual(["agent.session_open:unexpected", "agent.turn_started:unexpected", "agent.turn_ended:unexpected", "agent.archived:unexpected"]);
+    expect(failures).toEqual(["agent.open.before:unexpected", "agent.turn.before:unexpected", "agent.turn.after:unexpected", "agent.archive.after:unexpected"]);
   });
 
   it("tells the plugin's own failure by its code, and goes on with the request as it came", async () => {
@@ -2040,13 +2038,13 @@ describe("the guard of the hooks", () => {
       failed: (hook, code) => void failures.push(`${hook}:${code}`),
     });
     const open = opening("agent-1", "/work/a");
-    expect(await fake.before("agent.session_open", open, fakeDaemon({}).port)).toBe(open);
-    expect(failures).toEqual(["agent.session_open:service_unavailable"]);
+    expect(await fake.before("agent.open.before", open, fakeDaemon({}).port)).toBe(open);
+    expect(failures).toEqual(["agent.open.before:service_unavailable"]);
   });
 
   it.each([
-    ["agent.turn_ended", "turnEnded"],
-    ["agent.archived", "agentArchived"],
+    ["agent.turn.after", "turnEnded"],
+    ["agent.archive.after", "agentArchived"],
   ] as const)("tells a failure of %s by its code, and still calls the runtime", async (event, method) => {
     const fake = fakeHost();
     const failures: string[] = [];
@@ -2094,14 +2092,14 @@ describe("lifetimes through the hooks", () => {
     expect(daemon.sent).toEqual([{ agentId: "agent-1", text: continuationText(plugin.registry.get(requestId) as RequestRecord, plugin.files.drop) as string }]);
 
     // The end of the turn before the message, told late.
-    await plugin.emit("agent.turn_ended", turnEnded("t-0"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-0"), daemon.port);
     expect(plugin.registry.get(requestId)?.state).toBe("delivered");
     expect(existsSync(join(set, "A"))).toBe(true);
 
-    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
     expect(existsSync(join(set, "A"))).toBe(true);
     // The turn the message started fails: its end takes the files all the same.
-    await plugin.emit("agent.turn_ended", turnEnded("t-1", { kind: "failed", error: { message: "the model gave up" } }), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1", { kind: "failed", error: { message: "the model gave up" } }), daemon.port);
     expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "turn" });
     expect(existsSync(set)).toBe(false);
     await plugin.runtime.settled();
@@ -2112,7 +2110,7 @@ describe("lifetimes through the hooks", () => {
 
   it.each(["before", "after"])("keeps the set when a turn starts %s the send rejects, until its deadline", async (when) => {
     const { plugin, daemon, tool, requestId, set } = await delivered({}, "running");
-    const start = () => plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    const start = () => plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
     const send = vi.spyOn(plugin.runtime, "send").mockImplementationOnce(async () => {
       if (when === "before") await start();
       throw new Error("send failed");
@@ -2120,7 +2118,7 @@ describe("lifetimes through the hooks", () => {
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
     await plugin.runtime.flushAll();
     if (when === "after") await start();
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     await plugin.runtime.settled();
     expect({ state: plugin.registry.get(requestId)?.state, exists: existsSync(join(set, "A")) }).toEqual({ state: "delivered", exists: true });
     const deleteBy = plugin.registry.get(requestId)?.deleteBy as number;
@@ -2165,8 +2163,8 @@ describe("lifetimes through the hooks", () => {
     }
     expect(plugin.registry.get(requestId)?.state).toBe("delivered");
     expect(existsSync(set)).toBe(true);
-    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     await plugin.runtime.settled();
     expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "turn" });
     expect(existsSync(set)).toBe(false);
@@ -2176,12 +2174,12 @@ describe("lifetimes through the hooks", () => {
   it("marks a successful send before the turn it starts can begin", async () => {
     const { plugin, daemon, requestId, set } = await delivered({}, "running");
     const send = vi.spyOn(plugin.runtime, "send").mockImplementationOnce(async () => {
-      await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+      await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
     });
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
     await plugin.runtime.flushAll();
     expect(existsSync(set)).toBe(true);
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     await plugin.runtime.settled();
     expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "turn" });
     expect(existsSync(set)).toBe(false);
@@ -2195,7 +2193,7 @@ describe("lifetimes through the hooks", () => {
     expect(existsSync(set)).toBe(false);
 
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toEqual([
       {
@@ -2204,7 +2202,7 @@ describe("lifetimes through the hooks", () => {
       },
     ]);
     await plugin.runtime.flushAll();
-    await plugin.emit("agent.turn_ended", turnEnded("t-2"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-2"), daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toHaveLength(1);
     expect(JSON.parse(readFileSync(plugin.files.outbox, "utf8"))).toEqual([]);
@@ -2218,7 +2216,7 @@ describe("lifetimes through the hooks", () => {
     expect(existsSync(set)).toBe(false);
 
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toEqual([]);
     expect(JSON.parse(readFileSync(plugin.files.outbox, "utf8"))).toEqual([]);
@@ -2236,7 +2234,7 @@ describe("lifetimes through the hooks", () => {
     expect((daemon.appended.at(-1)?.item.data as { state: string }).state).toBe("released");
 
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toEqual([
       {
@@ -2245,7 +2243,7 @@ describe("lifetimes through the hooks", () => {
       },
     ]);
     await plugin.runtime.flushAll();
-    await plugin.emit("agent.turn_ended", turnEnded("t-2"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-2"), daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toHaveLength(1);
     expect(JSON.parse(readFileSync(plugin.files.outbox, "utf8"))).toEqual([]);
@@ -2254,11 +2252,11 @@ describe("lifetimes through the hooks", () => {
   it("tells the agent nothing more when the human deletes the files after the agent was told of them, and the end of its turn finds nothing to take", async () => {
     const { plugin, daemon, requestId } = await delivered();
     expect(daemon.sent).toHaveLength(1);
-    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
     expect(await plugin.call(clearDrop.name, {}, daemon.port)).toEqual({ released: 1, stuck: 0 });
     await plugin.runtime.settled();
     await plugin.runtime.flushAll();
-    await expect(plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port)).resolves.toBeUndefined();
+    await expect(plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port)).resolves.toBeUndefined();
     await plugin.runtime.settled();
     expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "human" });
     expect(daemon.sent).toHaveLength(1);
@@ -2269,9 +2267,9 @@ describe("lifetimes through the hooks", () => {
   it("does not fail a turn's end when the agent deleted the directory itself mid-turn", async () => {
     const { plugin, daemon, requestId, set } = await delivered();
     expect(daemon.sent).toHaveLength(1);
-    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
     rmSync(set, { recursive: true });
-    await expect(plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port)).resolves.toBeUndefined();
+    await expect(plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port)).resolves.toBeUndefined();
     expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "agent" });
     expect(plugin.status.lastHookFailure).toBeNull();
     expect(plugin.registry.health().drop).toBe("ok");
@@ -2290,18 +2288,18 @@ describe("lifetimes through the hooks", () => {
     plant(plugin.files.outbox, JSON.stringify(waiting.filter((item) => item.kind === "tamper")));
 
     (daemon.agents["agent-1"] as FakeAgent).status = "idle";
-    await plugin.emit("agent.turn_ended", turnEnded("t-0"), daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-0"), daemon.port);
     await plugin.runtime.settled();
     expect(daemon.sent).toEqual([{ agentId: "agent-1", text: tamperText(plugin.registry.get(requestId) as RequestRecord) }]);
-    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
-    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.emit("agent.turn.before", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn.after", turnEnded("t-1"), daemon.port);
     expect(plugin.registry.get(requestId)?.state).toBe("delivered");
     expect(existsSync(join(set, "A"))).toBe(true);
   });
 
   it.each([
-    ["agent.turn_ended", "turnEnded"],
-    ["agent.archived", "agentArchived"],
+    ["agent.turn.after", "turnEnded"],
+    ["agent.archive.after", "agentArchived"],
   ] as const)("never lets %s that cannot finish hold the hook beyond its bound", async (event, method) => {
     expect(RELEASE_WAIT_MS).toBe(5_000);
     const hooked = (releaseWaitMs?: number) => {
@@ -2559,10 +2557,10 @@ describe("start-up", () => {
   describe("a message that waited across a restart", () => {
     type Second = Awaited<ReturnType<typeof started>>;
     const early: Array<[string, (plugin: Second, port: DaemonPort) => Promise<unknown>]> = [
-      ["the end of a turn", (plugin, port) => plugin.emit("agent.turn_ended", { agent: { id: "agent-1" }, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, port)],
+      ["the end of a turn", (plugin, port) => plugin.emit("agent.turn.after", { agent: { id: "agent-1" }, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, port)],
       [
         "a session that opens",
-        (plugin, port) => plugin.before("agent.session_open", { ...opening("agent-1", "/work/a"), reason: "resume" }, port),
+        (plugin, port) => plugin.before("agent.open.before", { ...opening("agent-1", "/work/a"), reason: "resume" }, port),
       ],
       ["a diagnostics call", (plugin, port) => plugin.call(readDiagnostics.name, {}, port)],
     ];
@@ -2607,7 +2605,7 @@ describe("start-up", () => {
         expect(daemon.sent).toEqual([{ agentId: "agent-1", text: continuationText(second.registry.get(requestId) as RequestRecord, second.files.drop) as string }]);
         expect(readFileSync(second.files.outbox, "utf8")).toBe("[]");
         // Nothing sends it a second time.
-        await second.emit("agent.turn_ended", { agent: { id: "agent-1" }, turnId: "t-2", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
+        await second.emit("agent.turn.after", { agent: { id: "agent-1" }, turnId: "t-2", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
         await second.runtime.flushAll();
         await second.runtime.settled();
         expect(daemon.sent).toHaveLength(1);
@@ -2874,8 +2872,8 @@ describe("start-up", () => {
   it("reports the health of every part in the diagnostics, as names, counts and codes only", async () => {
     const plugin = await started();
     const daemon = fakeDaemon({});
-    await plugin.before("agent.session_open", opening("a", "/work/a"), daemon.port);
-    await plugin.before("agent.session_open", {}, daemon.port);
+    await plugin.before("agent.open.before", opening("a", "/work/a"), daemon.port);
+    await plugin.before("agent.open.before", {}, daemon.port);
 
     const expected = {
       attached: true,
@@ -2886,7 +2884,7 @@ describe("start-up", () => {
       startup: null,
       cardsOwed: 0,
       messagesHeld: false,
-      lastHookFailure: "agent.session_open: unexpected",
+      lastHookFailure: "agent.open.before: unexpected",
     };
     expect(await plugin.call(readDiagnostics.name, {}, daemon.port)).toEqual(expected);
   });
@@ -2922,7 +2920,7 @@ describe("start-up", () => {
       expect(before.registry.drop).toBe("failing");
       expect(before.requests.delivered).toBe(0);
       // The red row sends the human to the button, and the button is there.
-      expect(statusRows(before)[1]).toMatchObject({ label: "Секрети на сервері", value: "0 · не все видалено", dot: "bad" });
+      expect(statusRows(translate(), before)[1]).toMatchObject({ label: "status.files", value: "0 · not all deleted", dot: "bad" });
       expect(canDeleteAll(before)).toBe(true);
       // The deletion while the entry cannot go: it says so, and the button stays.
       expect(await plugin.call(clearDrop.name, {}, daemon.port)).toEqual({ released: 0, stuck: 1 });
@@ -2934,7 +2932,7 @@ describe("start-up", () => {
     expect(await plugin.call(clearDrop.name, {}, daemon.port)).toEqual({ released: 0, stuck: 0 });
     const after = await read();
     expect(after.registry.drop).toBe("ok");
-    expect(statusRows(after)[1]).toEqual({ label: "Секрети на сервері", value: "Немає", dot: "ok", explanation: null });
+    expect(statusRows(translate(), after)[1]).toEqual({ label: "status.files", value: "None", dot: "ok", explanation: null });
     expect(canDeleteAll(after)).toBe(false);
     expect(readdirSync(plugin.files.drop)).toEqual([]);
   });
@@ -3282,7 +3280,7 @@ describe("clean-up", () => {
     expect(refreshes).toBe(1); // the other two were never asked
 
     // Whatever asks afterwards, nothing reaches the daemon: no idle check, no send, no card.
-    await plugin.emit("agent.turn_ended", { agent: { id: "agent-2" }, turnId: "t", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
+    await plugin.emit("agent.turn.after", { agent: { id: "agent-2" }, turnId: "t", outcome: { kind: "completed" }, timeline: [] }, daemon.port);
     await plugin.runtime.flushAll();
     plugin.runtime.publish(record({ id: `r_${"9".repeat(32)}`, agentId: "agent-3", state: "declined" }), "state");
     await plugin.runtime.settled();
