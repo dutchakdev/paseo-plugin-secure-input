@@ -86,7 +86,7 @@ function deliveredText(head: string, record: RequestRecord, drop: string): strin
     "The values were not shown to you. Never let the content of a file or directory whose name starts with si-secret- reach you: do not read, print, open, compare or log it, and do not pass it as an argument.",
     "Move each value where it is needed only by redirection or by copy, for example `command < PATH` or `cp PATH DESTINATION`.",
     `Then delete the directory (\`rm -r ${shellPath(setPath(drop, record.id))}\`) or call release_secret.`,
-    `The files are deleted at the end of the turn this message starts, and at ${new Date(deleteBy).toISOString()} at the latest.`,
+    `The files are deleted at the end of the turn this message starts, or at the end of your next turn if it joins a running turn, and at ${new Date(deleteBy).toISOString()} at the latest.`,
   ].join("\n");
 }
 

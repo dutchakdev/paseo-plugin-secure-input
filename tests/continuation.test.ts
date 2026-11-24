@@ -134,7 +134,7 @@ describe("continuationText", () => {
         "Left empty by the user, so no file: PEM.",
         ...RULES,
         `Then delete the directory (\`rm -r '${set}'\`) or call release_secret.`,
-        "The files are deleted at the end of the turn this message starts, and at 2026-10-27T12:15:00.000Z at the latest.",
+        "The files are deleted at the end of the turn this message starts, or at the end of your next turn if it joins a running turn, and at 2026-10-27T12:15:00.000Z at the latest.",
       ].join("\n"),
     );
     expect(DELETE_BY).toBe(Date.parse("2026-10-27T12:15:00.000Z"));
@@ -148,7 +148,7 @@ describe("continuationText", () => {
         `  PEM → /data/drop/si-secret-${ID}/PEM`,
         ...RULES,
         `Then delete the directory (\`rm -r /data/drop/si-secret-${ID}\`) or call release_secret.`,
-        "The files are deleted at the end of the turn this message starts, and at 2026-10-27T12:15:00.000Z at the latest.",
+        "The files are deleted at the end of the turn this message starts, or at the end of your next turn if it joins a running turn, and at 2026-10-27T12:15:00.000Z at the latest.",
       ].join("\n"),
     );
     // Every key that was asked for and has no file is named, in the order it was asked for.
