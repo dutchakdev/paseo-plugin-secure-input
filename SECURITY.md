@@ -75,7 +75,7 @@ The bounds of the message queue:
 |---|---|
 | A direct LAN connection with a password | The WebSocket is not encrypted. An active attacker can swap the request's key and read what you type. Enter secrets over the relay or Tailscale only |
 | Someone sees the size of what you send | The sealed submission is padded to a multiple of 1 KiB. An observer can still infer a size range, and for a request with one value the approximate length of that value |
-| The app is older than the plugin requires (0.14.0-beta.1) | The plugin runs on the daemon, but the pill, the form and the settings screen do not load, so that device cannot answer requests. `paseo plugin ls` does not show it |
+| The app is older than the plugin requires (0.15.0) | The plugin runs on the daemon, but the pill, the form and the settings screen do not load, so that device cannot answer requests. `paseo plugin ls` does not show it |
 | The reply to your submission is lost, and you press → again with other values | The form first reads the request again, and sends nothing if the request has been answered. That narrows the window: a first submission still waiting in the plugin can win after that reading, and your second one is then refused and flagged as a second, different submission, though both were yours. With unchanged values the form sends the same sealed data again, which is never flagged |
 | Linux | Developed and run on macOS. Linux is declared supported, and the test suite passes on it; the plugin has not been run on a Linux daemon |
 

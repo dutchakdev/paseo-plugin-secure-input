@@ -38,11 +38,10 @@ function fakeHost() {
   const host: PluginHost = {
     // Paseo 0.16 overloads handle with subscriptions; this plugin serves RPCs only.
     handle: (contract, handler) => void rpc.set(contract.name, { contract: contract as PluginRpcContract, handler }),
-    before: (name, handler) => {
+    addHook: (name, handler) => {
       befores.set(name, handler);
       return () => undefined;
     },
-    on: () => () => undefined,
   };
   return {
     host,
@@ -163,7 +162,7 @@ beforeEach(async () => {
  * through, the tool holds to its own rules.
  */
 async function call(on: Started, name: string, input: unknown, agent: ToolAgent, signal = new AbortController().signal): Promise<AgentToolResult & { text: string }> {
-  const opened = (await on.before("agent.session_open", sessionFor(agent), daemon.port)) as SessionOpenRequest;
+  const opened = (await on.before("agent.open.before", sessionFor(agent), daemon.port)) as SessionOpenRequest;
   const tool = opened.tools.find((candidate) => candidate.name === name);
   if (tool === undefined) throw new Error(`the session was not given ${name}`);
   const result = await tool.execute(input, { agent: hookAgent(agent), paseo: daemon.port as unknown as AgentToolContext["paseo"], signal });
@@ -215,7 +214,7 @@ describe("the tools an agent is given", () => {
   it("hands every agent the plugin's tools, keeps other plugins' tools and replaces an older set of its own", async () => {
     // Paseo 0.14 hands each plugin's hook an empty list and merges what the plugins return afterwards: whatever is in the
     // list stays, and a tool under one of the plugin's own names can only be an older one of its own.
-    const answer = (await plugin.before("agent.session_open", { ...sessionOpen, tools: [otherTool, staleOwn] }, daemon.port)) as SessionOpenRequest;
+    const answer = (await plugin.before("agent.open.before", { ...sessionOpen, tools: [otherTool, staleOwn] }, daemon.port)) as SessionOpenRequest;
     expect(answer.tools.map((tool) => tool.name)).toEqual(["other_tool", ...TOOL_NAMES]);
     expect(answer.tools).not.toContain(staleOwn);
     expect({ ...answer, tools: sessionOpen.tools }).toEqual({ ...sessionOpen, tools: sessionOpen.tools });
@@ -225,7 +224,7 @@ describe("the tools an agent is given", () => {
 
   it("names its four tools, and describes them in the words the agent is given", async () => {
     expect(TOOL_NAMES).toEqual(["request_secret", "request_status", "cancel_request", "release_secret"]);
-    const { tools } = (await plugin.before("agent.session_open", sessionOpen, daemon.port)) as SessionOpenRequest;
+    const { tools } = (await plugin.before("agent.open.before", sessionOpen, daemon.port)) as SessionOpenRequest;
     const described = new Map(tools.map((tool) => [tool.name, tool.description]));
     expect(described.get("request_secret")).toBe(
       "Ask the human for secret values (passwords, API keys, tokens, private keys, connection strings, whole credential files) through a secure form in the Paseo app. " +
@@ -260,7 +259,7 @@ describe("the tools an agent is given", () => {
   });
 
   it("describes each input so that Paseo 0.14 can build its own check from it, and that check refuses a claim too", async () => {
-    const { tools } = (await plugin.before("agent.session_open", sessionOpen, daemon.port)) as SessionOpenRequest;
+    const { tools } = (await plugin.before("agent.open.before", sessionOpen, daemon.port)) as SessionOpenRequest;
     expect(tools).toHaveLength(TOOL_NAMES.length);
     for (const tool of tools) {
       // What the plugin process sends the daemon for a tool (server `plugins/agent-tools.ts`, `serializeAgentTool`), and
@@ -677,7 +676,7 @@ describe("the session-open hook", () => {
     const release = holdTheLoad();
     const waiting = await started({}, false);
     try {
-      const opened = await promptly(waiting.before("agent.session_open", sessionFor(agentA), daemon.port), SHORT);
+      const opened = await promptly(waiting.before("agent.open.before", sessionFor(agentA), daemon.port), SHORT);
       expect(opened).not.toBe("hung");
       expect((opened as SessionOpenRequest).tools.map((tool) => tool.name)).toEqual([...TOOL_NAMES]);
     } finally {
@@ -699,16 +698,16 @@ describe("the session-open hook", () => {
       failed: parts.failed,
     });
     const request = sessionFor(agentA);
-    expect(await hostFake.before("agent.session_open", request, daemon.port)).toBe(request);
-    expect(parts.status.lastHookFailure).toBe("agent.session_open: unexpected");
-    expect(logs).toEqual(["secure-input: hook_failed agent.session_open unexpected"]);
+    expect(await hostFake.before("agent.open.before", request, daemon.port)).toBe(request);
+    expect(parts.status.lastHookFailure).toBe("agent.open.before: unexpected");
+    expect(logs).toEqual(["secure-input: hook_failed agent.open.before unexpected"]);
     expect(parts.runtime.attached).toBe(true);
 
     // A request that is not what the SDK declares (no list of tools in it) goes back as it came, too.
     for (const payload of [{}, { ...request, tools: null }, { ...request, tools: "x" }, { ...request, tools: [null] }] as unknown[]) {
-      expect(await plugin.before("agent.session_open", payload, daemon.port), JSON.stringify(payload)).toBe(payload);
+      expect(await plugin.before("agent.open.before", payload, daemon.port), JSON.stringify(payload)).toBe(payload);
     }
-    expect(plugin.status.lastHookFailure).toBe("agent.session_open: unexpected");
-    expect(plugin.logs).toEqual(Array.from({ length: 4 }, () => "secure-input: hook_failed agent.session_open unexpected"));
+    expect(plugin.status.lastHookFailure).toBe("agent.open.before: unexpected");
+    expect(plugin.logs).toEqual(Array.from({ length: 4 }, () => "secure-input: hook_failed agent.open.before unexpected"));
   });
 });

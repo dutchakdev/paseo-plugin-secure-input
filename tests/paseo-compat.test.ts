@@ -128,11 +128,11 @@ describe("step 1: the plugin's claim, by the release's own rule", () => {
   const claim = (requirements: unknown, version: string | null) => claimOf(assertPluginCompatibility, { id: manifest.id, requirements, version });
 
   it("passes a release the range admits, and skips one it does not", () => {
-    expect(claim(manifest.requirements, "0.14.0-beta.2").status).toBe("pass");
+    expect(claim(manifest.requirements, "0.14.0-beta.2").status).toBe("skip");
     expect(claim(manifest.requirements, "0.15.0").status).toBe("pass");
     expect(claim(manifest.requirements, "0.13.2")).toEqual({
       status: "skip",
-      detail: 'Plugin "secure-input" requires Paseo >=0.14.0-beta.1. Your daemon is 0.13.2. Use a compatible plugin version or update the daemon.',
+      detail: 'Plugin "secure-input" requires Paseo >=0.15.0. Your daemon is 0.13.2. Use a compatible plugin version or update the daemon.',
     });
   });
 

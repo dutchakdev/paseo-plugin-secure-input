@@ -13,6 +13,7 @@
 
 ### Changed
 
+- The plugin requires Paseo 0.15.0 or later on the daemon and in the app. It now registers lifecycle hooks through the current SDK.
 - Paseo 0.16 and 0.17 checked: their daemons load the plugin, its RPCs and hooks work, and the plugin typechecks and passes its tests against their SDKs. The tests type the `background` and `metadata` members and the subscription overload of `handle` that 0.16 added, under every SDK.
 
 ## 0.3.0 - 2026-11-04

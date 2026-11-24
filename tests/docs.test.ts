@@ -800,8 +800,8 @@ const node = requirement("package.json", (json) => (json.engines as { node: stri
   .slice(0, 2)
   .join(".");
 /**
- * The release of Paseo on which the observations in the documents were made, with real agents. It is the requirement
- * today, and it stays what it is when the requirement moves: the observations were made on it.
+ * The release of Paseo on which the observations in the documents were made, with real agents. It
+ * stays what it is when the requirement moves: the observations were made on it.
  */
 const CHECKED_ON = "0.14.0-beta.1";
 
@@ -848,8 +848,6 @@ const CLAIMS: Claim[] = [
   { file: SKILL, pattern: /Nobody answered in (\d+) hours/, expected: [TTL_MS / HOUR] },
   // The README
   { file: README, pattern: /Paseo \*\*(\S+) or later\*\*/, expected: [paseo] },
-  // Said of the release the manifest requires: once it requires a release that is not a pre-release, the sentence goes.
-  { file: README, pattern: /Paseo (\S+) is a pre-release/, expected: [paseo] },
   { file: README, pattern: /Node\.js (\d+\.\d+) or later/, expected: [node] },
   { file: README, pattern: /home of Paseo (\S+) has that off/, expected: [CHECKED_ON] },
   { file: README, pattern: /has (\w+) tools beside Paseo's own/, expected: [TOOL_NAMES.length] },

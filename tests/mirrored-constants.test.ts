@@ -86,7 +86,7 @@ describe("the most one Paseo RPC may carry", () => {
   const installed = (name: string) => join(ROOT, "node_modules", "@getpaseo", name);
   // A compatibility run (`scripts/paseo-compat.mjs --with-sdk`) installs the SDK of a later Paseo over the pinned one
   // and names that release here: the limits are then held to it, and a release that moves one fails its run.
-  const release = process.env.PASEO_COMPAT_SDK ?? "0.14.0-beta.1";
+  const release = process.env.PASEO_COMPAT_SDK ?? "0.15.0";
 
   it("is what the installed protocol says of the daemon's WebSocket and of the relay's frame", () => {
     const protocol = readFileSync(join(installed("protocol"), "dist", "websocket-message-limit.js"), "utf8");
@@ -98,11 +98,11 @@ describe("the most one Paseo RPC may carry", () => {
 
   it("reads only packages the plugin declares, at the exact version it holds the number to", () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { devDependencies: Record<string, string> };
-    expect(manifest.devDependencies["@getpaseo/protocol"]).toBe("0.14.0-beta.1");
-    expect(manifest.devDependencies["@getpaseo/relay"]).toBe("0.14.0-beta.1");
+    expect(manifest.devDependencies["@getpaseo/protocol"]).toBe("0.15.0");
+    expect(manifest.devDependencies["@getpaseo/relay"]).toBe("0.15.0");
     // The lock file says it too, in the same commit as the manifest.
     const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8")) as { packages: Record<string, { devDependencies?: Record<string, string> }> };
-    expect(lock.packages[""]?.devDependencies?.["@getpaseo/relay"]).toBe("0.14.0-beta.1");
+    expect(lock.packages[""]?.devDependencies?.["@getpaseo/relay"]).toBe("0.15.0");
   });
 
   it("is the plaintext the installed relay fits into its largest frame, the smaller of the two", async () => {
@@ -131,10 +131,10 @@ describe("the version of the plugin and the Paseo it needs, as the settings scre
 
   it("is the release of Paseo that the manifest of the plugin requires", () => {
     const requirement = read<{ requirements: { paseo: string } }>("paseo-plugin.json").requirements.paseo;
-    expect(requirement).toBe(">=0.14.0-beta.1");
+    expect(requirement).toBe(">=0.15.0");
     const minimum = /^>=(\d+\.\d+)\.\d+/.exec(requirement);
     expect(minimum).not.toBeNull();
     expect(limits.PASEO_SINCE).toBe(`Paseo ${(minimum as RegExpExecArray)[1]}+`);
-    expect(limits.PASEO_SINCE).toBe("Paseo 0.14+");
+    expect(limits.PASEO_SINCE).toBe("Paseo 0.15+");
   });
 });

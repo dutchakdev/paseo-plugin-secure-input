@@ -19,7 +19,7 @@ import { Runtime, SETTLE_BOUND_MS } from "./runtime";
 import { agentTools } from "./tools";
 
 /** The parts of the server context the plugin uses. */
-export type PluginHost = Pick<PluginServerContext, "handle" | "before" | "on">;
+export type PluginHost = Pick<PluginServerContext, "handle" | "addHook">;
 
 /**
  * What the plugin runs in. Under plain Node the shim v1 left is pointed at `execPath`, which runs the stub in place of

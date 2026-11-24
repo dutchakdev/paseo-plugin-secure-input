@@ -14,7 +14,7 @@ The agent has four tools, which Paseo serves beside its own: `request_secret` to
 
 ## Setup
 
-- Paseo 0.14.0-beta.1 or later on the daemon and in the app: an older app does not load the pill, the form or the settings screen. A macOS or Linux daemon with Node.js 22.12 or later; live validation has been on macOS.
+- Paseo 0.15.0 or later on the daemon and in the app: an older app does not load the pill, the form or the settings screen. A macOS or Linux daemon with Node.js 22.12 or later; live validation has been on macOS.
 - Paseo must give its tools to agents (`daemon.mcp.injectIntoAgents`): while that is off, no agent has the plugin's tools.
 - Link the skill where your agents read skills, as the [README](https://github.com/dutchakdev/paseo-plugin-secure-input#install) shows.
 - Answer from the app over the relay or Tailscale: a direct LAN connection with a password is not encrypted.
