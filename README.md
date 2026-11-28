@@ -4,7 +4,7 @@ secure-input is a [Paseo](https://paseo.sh) plugin: an agent asks you for a pass
 
 ## Install
 
-Paseo **0.15.0 or later** on the daemon and in every app you answer from: an older app shows no pill, and `paseo plugin ls` cannot tell you. The daemon needs Node.js 22.12 or later; macOS and Linux are declared supported, and live validation has been on macOS. Check both versions:
+Paseo **0.15.0 or later** on the daemon and in every app you answer from: an older app shows no pill, and `paseo plugin ls` cannot tell you. The daemon needs Node.js 22.12 or later. The Paseo 0.18.1 SDK and daemon were checked, including RPCs and agent lifecycle hooks. Check both versions:
 
 ```bash
 paseo daemon status          # daemonVersion

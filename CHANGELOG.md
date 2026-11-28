@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 - 2026-11-28
+
+### Changed
+
+- Verified Secure Input with Paseo 0.18, including its SDK, diagnostic RPCs, and agent lifecycle hooks.
+
 ## 0.4.0 - 2026-11-24
 
 ### Added
